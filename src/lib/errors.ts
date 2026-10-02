@@ -15,3 +15,15 @@ export abstract class AppError extends Error {
 export class ConfigError extends AppError {
   readonly code = "NOT_CONFIGURED";
 }
+
+/** Request input (query string, path param, header) failed validation. */
+export class InvalidInputError extends AppError {
+  readonly code = "INVALID_INPUT";
+
+  constructor(
+    message: string,
+    readonly issues: string[] = [],
+  ) {
+    super(message);
+  }
+}
