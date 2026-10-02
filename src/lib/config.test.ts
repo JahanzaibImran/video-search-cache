@@ -7,6 +7,7 @@ describe("loadConfig", () => {
     expect(loadConfig({ YOUTUBE_API_KEY: "abc", CREDIT_LIMIT: "5" })).toEqual({
       youtubeApiKey: "abc",
       creditLimit: 5,
+      youtubeApiBaseUrl: undefined,
     });
   });
 
@@ -23,5 +24,12 @@ describe("loadConfig", () => {
   it("rejects a credit limit that isn't a non-negative integer", () => {
     expect(() => loadConfig({ CREDIT_LIMIT: "lots" })).toThrow(ConfigError);
     expect(() => loadConfig({ CREDIT_LIMIT: "-1" })).toThrow(/CREDIT_LIMIT/);
+  });
+
+  it("accepts an optional API base URL override and rejects a malformed one", () => {
+    expect(loadConfig({ YOUTUBE_API_BASE_URL: "http://localhost:4100" }).youtubeApiBaseUrl).toBe(
+      "http://localhost:4100",
+    );
+    expect(() => loadConfig({ YOUTUBE_API_BASE_URL: "not a url" })).toThrow(ConfigError);
   });
 });

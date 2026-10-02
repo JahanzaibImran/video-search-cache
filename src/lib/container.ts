@@ -23,7 +23,10 @@ function createContainer(): Container {
 
   const videoService = config.youtubeApiKey
     ? createVideoService({
-        youtube: createYouTubeClient({ apiKey: config.youtubeApiKey }),
+        youtube: createYouTubeClient({
+          apiKey: config.youtubeApiKey,
+          baseUrl: config.youtubeApiBaseUrl,
+        }),
         ledger,
         cache,
       })

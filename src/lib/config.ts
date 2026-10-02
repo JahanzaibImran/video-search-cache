@@ -25,12 +25,15 @@ const envSchema = z.object({
     emptyAsUndefined,
     z.coerce.number().int().nonnegative().default(DEFAULT_CREDIT_LIMIT),
   ),
+  /** Optional override, e.g. to point at a mock server for local e2e runs. */
+  YOUTUBE_API_BASE_URL: z.preprocess(emptyAsUndefined, z.url().optional()),
 });
 
 export interface AppConfig {
   /** `null` when not configured; the UI shows setup instructions instead of failing. */
   youtubeApiKey: string | null;
   creditLimit: number;
+  youtubeApiBaseUrl?: string;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
@@ -42,5 +45,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   return {
     youtubeApiKey: parsed.data.YOUTUBE_API_KEY ?? null,
     creditLimit: parsed.data.CREDIT_LIMIT,
+    youtubeApiBaseUrl: parsed.data.YOUTUBE_API_BASE_URL,
   };
 }

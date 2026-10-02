@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAge, formatCompactNumber, formatDate, formatDuration } from "./format";
+import { formatAge, formatCompactNumber, formatDate, formatDuration, plural } from "./format";
 
 describe("format helpers", () => {
   it("formats dates in UTC", () => {
@@ -21,6 +21,12 @@ describe("format helpers", () => {
     ["garbage", null],
   ])("formats duration %s as %s", (iso, expected) => {
     expect(formatDuration(iso)).toBe(expected);
+  });
+
+  it("pluralises", () => {
+    expect(plural(1, "reply", "replies")).toBe("reply");
+    expect(plural(2, "reply", "replies")).toBe("replies");
+    expect(plural(0, "like")).toBe("likes");
   });
 
   it("formats ages relative to now", () => {

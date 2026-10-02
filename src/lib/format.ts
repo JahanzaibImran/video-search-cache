@@ -22,6 +22,11 @@ export function formatCompactNumber(value: number): string {
   return compactFormatter.format(value);
 }
 
+/** Picks singular or plural: (1, "like") -> "like", (2, "like") -> "likes". */
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return count === 1 ? singular : pluralForm;
+}
+
 /** ISO 8601 duration -> clock time: "PT10M3S" -> "10:03", "PT1H2M" -> "1:02:00". */
 export function formatDuration(iso: string): string | null {
   const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso);
