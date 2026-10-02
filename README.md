@@ -1,6 +1,6 @@
 # video-search-cache
 
-[![CI](https://github.com/OWNER/video-search-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/video-search-cache/actions/workflows/ci.yml)
+[![CI](https://github.com/JahanzaibImran/video-search-cache/actions/workflows/ci.yml/badge.svg)](https://github.com/JahanzaibImran/video-search-cache/actions/workflows/ci.yml)
 
 A YouTube video search app built with **Next.js 15 (App Router)**, **TypeScript (strict)** and **Tailwind CSS**. It shows how to put an external, quota-limited API behind a cache-first service layer with per-user usage limits.
 
