@@ -83,6 +83,7 @@ export function VideoDetailPanel({ summary, state, onClose, onRetry }: VideoDeta
                 <CacheBadge
                   cached={details.video.meta.cached}
                   fetchedAt={details.video.meta.fetchedAt}
+                  creditsCharged={details.video.meta.creditsCharged}
                 />
               )}
             </div>
@@ -115,6 +116,7 @@ export function VideoDetailPanel({ summary, state, onClose, onRetry }: VideoDeta
                 <CacheBadge
                   cached={details.comments.meta.cached}
                   fetchedAt={details.comments.meta.fetchedAt}
+                  creditsCharged={details.comments.meta.creditsCharged}
                 />
               )}
             </div>

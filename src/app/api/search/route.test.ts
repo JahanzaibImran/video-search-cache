@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiErrorResponse, SearchResponse } from "@/lib/api/types";
+import { CREDITS_PER_CALL } from "@/lib/credits";
 import { youtubeErrorBody } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
@@ -50,6 +51,15 @@ describe("GET /api/search", () => {
     expect(body.error.code).toBe("CREDIT_LIMIT_REACHED");
     expect(body.credits).toEqual({ used: 1, limit: 1, remaining: 0 });
     expect(youtubeCalls.search).toBe(1); // the blocked request never reached upstream
+  });
+
+  it("reports what each request was charged: the price on a miss, 0 on a hit", async () => {
+    const miss = (await (await search("cost check")).json()) as SearchResponse;
+    const hit = (await (await search("cost check")).json()) as SearchResponse;
+
+    expect(miss.meta.creditsCharged).toBe(CREDITS_PER_CALL);
+    expect(hit.meta.creditsCharged).toBe(0);
+    expect(hit.credits.used).toBe(CREDITS_PER_CALL);
   });
 
   it("maps an upstream 5xx to 502 and refunds the credit", async () => {

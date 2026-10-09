@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { z } from "zod";
 import type { ApiErrorCode, ApiErrorResponse, CacheMeta } from "@/lib/api/types";
-import type { CachedResult } from "@/lib/cache";
 import { getContainer } from "@/lib/container";
 import { CreditLimitError, type CreditUsage } from "@/lib/credits";
 import { AppError, InvalidInputError } from "@/lib/errors";
+import type { ChargedResult } from "@/lib/services/video-service";
 import { RateLimitError } from "@/lib/youtube";
 import { USER_ID_COOKIE, resolveUser, type RequestUser } from "./user";
 
@@ -74,11 +74,12 @@ export function parseInput<S extends z.ZodType>(schema: S, input: unknown): z.ou
   return parsed.data;
 }
 
-export function toCacheMeta(result: CachedResult<unknown>): CacheMeta {
+export function toCacheMeta(result: ChargedResult<unknown>): CacheMeta {
   return {
     cacheKey: result.key,
     source: result.source,
     cached: result.source !== "upstream",
+    creditsCharged: result.creditsCharged,
     fetchedAt: new Date(result.fetchedAt).toISOString(),
   };
 }

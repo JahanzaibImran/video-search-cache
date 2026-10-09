@@ -14,6 +14,8 @@ export interface CacheMeta {
   source: CacheSource;
   /** True when this response did not trigger an upstream call (so it cost nothing). */
   cached: boolean;
+  /** Credits this request was actually charged. The UI shows this rather than assuming a price. */
+  creditsCharged: number;
   /** ISO timestamp of the upstream fetch that produced the data. */
   fetchedAt: string;
 }

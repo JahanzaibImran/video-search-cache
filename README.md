@@ -38,14 +38,16 @@ sequenceDiagram
         C->>L: charge(user) · throws CreditLimitError at limit
         C->>Y: search.list
         Y-->>C: response (Zod-validated)
-        C-->>R: value (source: upstream) · 1 credit
+        C-->>R: value (source: upstream) · CREDITS_PER_CALL credits (src/lib/credits/costs.ts)
     end
 ```
 
 ### Credit rules
 
-- 1 credit = 1 upstream API call. Users start with `CREDIT_LIMIT` (default 20).
-- Opening an uncached video costs up to 2 credits (`videos.list` + `commentThreads.list`), since each is cached separately.
+- Each upstream API call costs `CREDITS_PER_CALL` credits, set in one place: [`src/lib/credits/costs.ts`](src/lib/credits/costs.ts). The ledger, the API response (`meta.creditsCharged`) and the UI all read it from there. Users start with `CREDIT_LIMIT` (default 20).
+- Opening an uncached video makes up to 2 upstream calls (`videos.list` + `commentThreads.list`), since each is cached separately.
+- A call is only allowed if the user can afford its full price; the balance never goes over the limit.
+- Each ledger entry stores the `amount` charged, so changing the price later doesn't rewrite past charges.
 - At the limit, a miss fails with `CreditLimitError` (HTTP 402) **before** any network call.
 - If the upstream call fails, the credit is refunded with a compensating ledger entry. The ledger is append-only, and each entry records `userId`, `action`, `cacheKey` and `timestamp`.
 - Charging is atomic (check + record in one step), so parallel requests can't overspend.
@@ -103,7 +105,7 @@ npm run dev                  # http://localhost:3000
 | Variable               | Default | Description                                                   |
 | ---------------------- | ------- | ------------------------------------------------------------- |
 | `YOUTUBE_API_KEY`      | (none)  | Required for searching. Without it the app shows setup steps. |
-| `CREDIT_LIMIT`         | `20`    | Upstream calls each user may trigger.                         |
+| `CREDIT_LIMIT`         | `20`    | Credits each user starts with.                                |
 | `YOUTUBE_API_BASE_URL` | Google  | Optional override, e.g. a local mock server for e2e runs.     |
 
 Try it from the command line:
@@ -139,7 +141,7 @@ CI (GitHub Actions) runs format check, lint, typecheck, tests and a production b
 - **Real auth:** derive `userId` from a verified session (e.g. NextAuth or Clerk) instead of a header or cookie anyone can set, and rate-limit per IP as a backstop.
 - **Background refresh:** serve stale entries while revalidating them in the background (stale-while-revalidate), so popular queries never block on YouTube and TTL expiry doesn't cause latency spikes.
 - **Observability:** metrics for hit rate, upstream latency, quota usage and credit exhaustion, plus alerts before the daily YouTube quota runs out.
-- **Smarter costing:** weight credits by YouTube's quota cost per endpoint (`search.list` costs 100 units, `videos.list` 1) instead of a flat 1 credit per call.
+- **Smarter costing:** weight credits by YouTube's quota cost per endpoint (`search.list` costs 100 units, `videos.list` 1) instead of one flat `CREDITS_PER_CALL` price for every endpoint.
 
 ## Tech stack
 

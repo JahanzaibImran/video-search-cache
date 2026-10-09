@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api/client";
 import type { CreditUsage, SearchResponse, VideoSummary } from "@/lib/api/types";
+import { CREDITS_PER_CALL } from "@/lib/credits/costs";
+import { formatCredits } from "@/lib/format";
 import { AppHeader } from "./AppHeader";
 import { CreditsIndicator } from "./CreditsIndicator";
 import { SearchBox } from "./SearchBox";
@@ -76,9 +78,9 @@ function SearchResults({ state, query, onRetry, onSelect }: SearchResultsProps) 
     case "idle":
       return (
         <StatusMessage title="Search for any topic to get started">
-          Each new search or video costs one credit. Repeat it (even with different capitalisation
-          or spacing) and it&apos;s served from cache for free. Look for the{" "}
-          <span className="font-medium text-amber-700">fresh</span> and{" "}
+          Each new search or video costs {formatCredits(CREDITS_PER_CALL)}. Repeat it (even with
+          different capitalisation or spacing) and it&apos;s served from cache for free. Look for
+          the <span className="font-medium text-amber-700">fresh</span> and{" "}
           <span className="font-medium text-emerald-700">cached</span> badges.
         </StatusMessage>
       );
@@ -138,8 +140,8 @@ function SearchResults({ state, query, onRetry, onSelect }: SearchResultsProps) 
             {results.length} results for{" "}
             <span className="font-medium text-zinc-800">“{query}”</span>
             {meta.cached
-              ? " · served from cache, no credit used"
-              : " · fetched live, 1 credit used"}
+              ? " · served from cache, no credits used"
+              : ` · fetched live, ${formatCredits(meta.creditsCharged)} used`}
           </p>
           <ResultsGrid>
             {results.map((video) => (
@@ -148,6 +150,7 @@ function SearchResults({ state, query, onRetry, onSelect }: SearchResultsProps) 
                   video={video}
                   cached={meta.cached}
                   fetchedAt={meta.fetchedAt}
+                  creditsCharged={meta.creditsCharged}
                   onSelect={onSelect}
                 />
               </li>
