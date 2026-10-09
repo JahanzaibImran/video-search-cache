@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { z } from "zod";
-import type { ApiErrorCode, ApiErrorResponse, CacheMeta } from "@/lib/api/types";
+import type { ApiError, ApiErrorCode, ApiErrorResponse, CacheMeta } from "@/lib/api/types";
 import { getContainer } from "@/lib/container";
 import { ACTION_LABELS, CreditLimitError, type CreditUsage } from "@/lib/credits";
 import { AppError, InvalidInputError } from "@/lib/errors";
@@ -89,7 +89,11 @@ export function toCacheMeta(result: ChargedResult<unknown>): CacheMeta {
   };
 }
 
-async function errorResponse(error: unknown, userId?: string): Promise<NextResponse> {
+/**
+ * Any thrown value -> a stable code plus client-safe copy. Internal details
+ * (endpoints, statuses, Zod issues) are logged, never sent to the browser.
+ */
+export function toApiError(error: unknown): ApiError {
   const code: ApiErrorCode = isKnownCode(error) ? error.code : "INTERNAL_ERROR";
   if (code === "INTERNAL_ERROR" || code === "UPSTREAM_ERROR") {
     console.error("[api]", error);
@@ -105,7 +109,11 @@ async function errorResponse(error: unknown, userId?: string): Promise<NextRespo
       `${ACTION_LABELS[action]} costs ${formatCredits(cost)} and you have ` +
       `${error.usage.remaining} left. Anything already cached is still free to view.`;
   }
+  return { code, message };
+}
 
+async function errorResponse(error: unknown, userId?: string): Promise<NextResponse> {
+  const { code, message } = toApiError(error);
   const body: ApiErrorResponse = { error: { code, message } };
   const credits = error instanceof CreditLimitError ? error.usage : await safeUsage(userId);
   if (credits) body.credits = credits;

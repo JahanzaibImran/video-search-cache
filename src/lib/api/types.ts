@@ -43,9 +43,19 @@ export interface SearchResponse {
   credits: CreditUsage;
 }
 
+/**
+ * Comments can fail on their own (rate limit, out of credits, provider error)
+ * without hiding video details that loaded fine. So the comments slot is
+ * either data or an error, and the UI can tell three states apart:
+ * - `data.disabled: true`        -> comments are turned off (free)
+ * - `data.comments: []`          -> no comments yet (charged: a real answer)
+ * - `error`                      -> the fetch failed (free: refunded)
+ */
+export type CommentsSlot = { data: CommentsResult; meta: CacheMeta } | { error: ApiError };
+
 export interface VideoCommentsResponse {
   video: { data: VideoDetails; meta: CacheMeta };
-  comments: { data: CommentsResult; meta: CacheMeta };
+  comments: CommentsSlot;
   credits: CreditUsage;
 }
 
@@ -73,8 +83,13 @@ export type ApiErrorCode =
   | "NOT_CONFIGURED"
   | "INTERNAL_ERROR";
 
+export interface ApiError {
+  code: ApiErrorCode;
+  message: string;
+}
+
 export interface ApiErrorResponse {
-  error: { code: ApiErrorCode; message: string };
+  error: ApiError;
   /** Included whenever the user's balance is known, so the UI can stay in sync. */
   credits?: CreditUsage;
 }

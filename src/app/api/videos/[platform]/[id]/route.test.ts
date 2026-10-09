@@ -1,13 +1,13 @@
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiErrorResponse, VideoCommentsResponse } from "@/lib/api/types";
+import type { ApiErrorResponse, CommentsSlot, VideoCommentsResponse } from "@/lib/api/types";
 import { CREDIT_COSTS } from "@/lib/credits";
 import { COMMENTS_DISABLED_VIDEO_ID, MISSING_VIDEO_ID, VIDEO_ID } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
-import { scCalls } from "@/test/msw/scrapecreators-handlers";
+import { scCalls, scUrl } from "@/test/msw/scrapecreators-handlers";
 import { apiRequest, setupApp } from "@/test/routes";
-import { TT_VIDEO_ID } from "@/test/scrapecreators-fixtures";
+import { TT_COMMENTS_OFF_ID, TT_NO_COMMENTS_ID, TT_VIDEO_ID } from "@/test/scrapecreators-fixtures";
 import { GET } from "./route";
 
 const getVideo = (platform: string, id: string, userId = "alice") =>
@@ -15,6 +15,12 @@ const getVideo = (platform: string, id: string, userId = "alice") =>
     params: Promise.resolve({ platform, id }),
   });
 const getComments = (id: string, userId = "alice") => getVideo("youtube", id, userId);
+
+/** The comments slot when it loaded; fails the test if it holds an error instead. */
+function loaded(slot: CommentsSlot) {
+  if ("error" in slot) throw new Error(`comments failed: ${slot.error.code}`);
+  return slot;
+}
 
 describe("GET /api/videos/[platform]/[id]", () => {
   beforeEach(() => setupApp());
@@ -30,8 +36,8 @@ describe("GET /api/videos/[platform]/[id]", () => {
       cached: false,
       creditsCharged: CREDIT_COSTS.videoDetails,
     });
-    expect(body.comments.data.comments).toHaveLength(2);
-    expect(body.comments.meta).toMatchObject({
+    expect(loaded(body.comments).data.comments).toHaveLength(2);
+    expect(loaded(body.comments).meta).toMatchObject({
       cacheKey: `youtube:comments:${VIDEO_ID}`,
       cached: false,
       creditsCharged: CREDIT_COSTS.comments,
@@ -44,7 +50,7 @@ describe("GET /api/videos/[platform]/[id]", () => {
     const body = (await (await getComments(VIDEO_ID, "bob")).json()) as VideoCommentsResponse;
 
     expect(body.video.meta.cached).toBe(true);
-    expect(body.comments.meta.cached).toBe(true);
+    expect(loaded(body.comments).meta.cached).toBe(true);
     expect(body.credits.used).toBe(0);
     expect(youtubeCalls.total).toBe(2);
   });
@@ -60,19 +66,22 @@ describe("GET /api/videos/[platform]/[id]", () => {
     expect(youtubeCalls.total).toBe(0);
   });
 
-  it("maps an upstream failure to 502", async () => {
+  it("reports a comments failure in the comments slot, still returning the video (200)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     server.use(
       http.get(youtubeUrl("commentThreads"), () => new HttpResponse(null, { status: 503 })),
     );
 
     const response = await getComments(VIDEO_ID);
-    const body = (await response.json()) as ApiErrorResponse;
+    const body = (await response.json()) as VideoCommentsResponse;
 
-    expect(response.status).toBe(502);
-    expect(body.error.code).toBe("UPSTREAM_ERROR");
-    // The video call succeeded and stays cached and charged; the failed comments call is refunded.
-    expect(body.credits?.used).toBe(CREDIT_COSTS.videoDetails);
+    expect(response.status).toBe(200);
+    expect(body.video.data.id).toBe(VIDEO_ID);
+    expect(body.comments).toEqual({
+      error: { code: "UPSTREAM_ERROR", message: expect.stringContaining("nothing was charged") },
+    });
+    // The video call succeeded and stays charged; the failed comments call is refunded.
+    expect(body.credits.used).toBe(CREDIT_COSTS.videoDetails);
   });
 
   it("returns 404 for a video that doesn't exist", async () => {
@@ -87,7 +96,7 @@ describe("GET /api/videos/[platform]/[id]", () => {
       await getComments(COMMENTS_DISABLED_VIDEO_ID)
     ).json()) as VideoCommentsResponse;
 
-    expect(body.comments.data).toEqual({ comments: [], disabled: true });
+    expect(loaded(body.comments).data).toEqual({ comments: [], disabled: true });
   });
 
   it("rejects an invalid video id with 400 before touching YouTube", async () => {
@@ -123,10 +132,47 @@ describe("GET /api/videos/[platform]/[id]", () => {
 
       expect(body.video.data).toMatchObject({ id: TT_VIDEO_ID, platform: "tiktok" });
       expect(body.video.meta.cacheKey).toBe(`tiktok:video:${TT_VIDEO_ID}`);
-      expect(body.comments.data.comments).toHaveLength(1);
+      expect(loaded(body.comments).data.comments).toHaveLength(1);
       expect(body.credits.used).toBe(CREDIT_COSTS.videoDetails + CREDIT_COSTS.comments);
       expect(scCalls.total).toBe(2);
       expect(youtubeCalls.total).toBe(0); // the YouTube Data API is not involved
+    });
+
+    it("comments turned off: 200, disabled: true, comments free", async () => {
+      const body = (await (
+        await getVideo("tiktok", TT_COMMENTS_OFF_ID)
+      ).json()) as VideoCommentsResponse;
+
+      expect(loaded(body.comments)).toMatchObject({
+        data: { comments: [], disabled: true },
+        meta: { creditsCharged: 0 },
+      });
+      expect(body.credits.used).toBe(CREDIT_COSTS.videoDetails);
+    });
+
+    it("no comments yet: 200, disabled: false, empty list, comments charged", async () => {
+      const body = (await (
+        await getVideo("tiktok", TT_NO_COMMENTS_ID)
+      ).json()) as VideoCommentsResponse;
+
+      expect(loaded(body.comments)).toMatchObject({
+        data: { comments: [], disabled: false },
+        meta: { creditsCharged: CREDIT_COSTS.comments },
+      });
+      expect(body.credits.used).toBe(CREDIT_COSTS.videoDetails + CREDIT_COSTS.comments);
+    });
+
+    it("comments fetch failed: 200 with the video, an error in the comments slot, comments free", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      server.use(
+        http.get(scUrl("/v1/tiktok/video/comments"), () => new HttpResponse(null, { status: 500 })),
+      );
+
+      const body = (await (await getVideo("tiktok", TT_VIDEO_ID)).json()) as VideoCommentsResponse;
+
+      expect(body.video.data.id).toBe(TT_VIDEO_ID);
+      expect(body.comments).toMatchObject({ error: { code: "UPSTREAM_ERROR" } });
+      expect(body.credits.used).toBe(CREDIT_COSTS.videoDetails);
     });
   });
 });

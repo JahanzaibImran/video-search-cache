@@ -10,17 +10,27 @@ import {
 } from "@/lib/youtube";
 import { createScrapeCreatorsClient } from "@/lib/providers/scrapecreators/client";
 import { UnsupportedError } from "@/lib/providers/errors";
-import { MISSING_VIDEO_ID, VIDEO_ID } from "@/test/fixtures";
+import { COMMENTS_DISABLED_VIDEO_ID, MISSING_VIDEO_ID, VIDEO_ID } from "@/test/fixtures";
 import { SC_TEST_API_KEY, scCalls } from "@/test/msw/scrapecreators-handlers";
 import {
+  SC_YT_COMMENTS_OFF_ID,
   SC_YT_NO_CAPTIONS_ID,
+  SC_YT_NO_COMMENTS_ID,
   SC_YT_VIDEO_ID,
+  TT_COMMENTS_OFF_ID,
+  TT_NO_COMMENTS_ID,
   TT_NO_TRANSCRIPT_ID,
   TT_VIDEO_ID,
 } from "@/test/scrapecreators-fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
-import { createVideoService, type VideoService } from "./video-service";
+import { createVideoService, type CommentsOutcome, type VideoService } from "./video-service";
+
+/** Unwraps a successful comments outcome, failing the test with the error otherwise. */
+function loaded(outcome: CommentsOutcome) {
+  if (!outcome.ok) throw outcome.error;
+  return outcome.result;
+}
 
 const LIMIT = 5;
 const yt = (id: string) => ({ platform: "youtube", id }) as const;
@@ -149,15 +159,15 @@ describe("VideoService (cache + credits + YouTube client)", () => {
     it("fetches video + comments (2 credits) the first time and nothing the second", async () => {
       const first = await service.getVideoWithComments("alice", yt(VIDEO_ID));
       expect(first.video).toMatchObject({ source: "upstream", key: `youtube:video:${VIDEO_ID}` });
-      expect(first.comments).toMatchObject({
+      expect(loaded(first.comments)).toMatchObject({
         source: "upstream",
         key: `youtube:comments:${VIDEO_ID}`,
       });
-      expect(first.comments.value.comments).toHaveLength(2);
+      expect(loaded(first.comments).value.comments).toHaveLength(2);
 
       const second = await service.getVideoWithComments("alice", yt(VIDEO_ID));
       expect(second.video.source).toBe("cache");
-      expect(second.comments.source).toBe("cache");
+      expect(loaded(second.comments).source).toBe("cache");
 
       expect(youtubeCalls.total).toBe(2);
       expect(await service.getUsage("alice")).toMatchObject({ used: 2 });
@@ -196,7 +206,7 @@ describe("VideoService (cache + credits + YouTube client)", () => {
       const { video, comments } = await service.getVideoWithComments("alice", yt(VIDEO_ID));
 
       expect(video.creditsCharged).toBe(1);
-      expect(comments.creditsCharged).toBe(2);
+      expect(loaded(comments).creditsCharged).toBe(2);
       expect(await service.getUsage("alice")).toMatchObject({ used: 3 });
     });
 
@@ -300,5 +310,117 @@ describe("VideoService: unsupported features", () => {
     );
     expect(await ledger.getEntries("alice")).toEqual([]);
     expect(youtubeCalls.total).toBe(0);
+  });
+});
+
+describe("VideoService: comments turned off vs none yet vs failed", () => {
+  const PRICED: CreditCosts = { search: 3, videoDetails: 1, comments: 2, transcript: 2 };
+  let ledger: InMemoryCreditLedger;
+  const cache = () => createCachedFetch(new InMemoryCacheStore());
+  const youtubeApi = () => createYouTubeProvider(createYouTubeClient({ apiKey: "test-key" }));
+  const scrapeCreators = () => createScrapeCreatorsClient({ apiKey: SC_TEST_API_KEY });
+  const tt = (id: string) => ({ platform: "tiktok", id }) as const;
+
+  beforeEach(() => {
+    ledger = new InMemoryCreditLedger({ limit: 20, costs: PRICED });
+  });
+
+  describe("1. turned off: free", () => {
+    it("YouTube Data API (403 commentsDisabled): disabled, refunded, and cached", async () => {
+      const service = createVideoService({ provider: youtubeApi(), ledger, cache: cache() });
+
+      const first = await service.getVideoWithComments("alice", yt(COMMENTS_DISABLED_VIDEO_ID));
+      const again = await service.getVideoWithComments("alice", yt(COMMENTS_DISABLED_VIDEO_ID));
+
+      expect(loaded(first.comments)).toMatchObject({
+        value: { comments: [], disabled: true },
+        creditsCharged: 0,
+      });
+      expect(loaded(again.comments).source).toBe("cache"); // not asked upstream again
+      expect(youtubeCalls.commentThreads).toBe(1);
+      expect(await ledger.getUsage("alice")).toMatchObject({ used: PRICED.videoDetails });
+    });
+
+    it("ScrapeCreators TikTok: known from the video details, so the comments call is skipped", async () => {
+      const service = createVideoService({ provider: scrapeCreators(), ledger, cache: cache() });
+
+      const { comments } = await service.getVideoWithComments("alice", tt(TT_COMMENTS_OFF_ID));
+
+      expect(loaded(comments)).toMatchObject({
+        value: { comments: [], disabled: true },
+        creditsCharged: 0,
+      });
+      expect(scCalls.count("/v1/tiktok/video/comments")).toBe(0);
+      expect(await ledger.getUsage("alice")).toMatchObject({ used: PRICED.videoDetails });
+    });
+
+    it("ScrapeCreators YouTube: flagged by the comments response, refunded", async () => {
+      const service = createVideoService({ provider: scrapeCreators(), ledger, cache: cache() });
+
+      const { comments } = await service.getVideoWithComments("alice", yt(SC_YT_COMMENTS_OFF_ID));
+
+      expect(loaded(comments)).toMatchObject({ value: { disabled: true }, creditsCharged: 0 });
+      expect(await ledger.getUsage("alice")).toMatchObject({ used: PRICED.videoDetails });
+    });
+  });
+
+  describe("2. none yet: a real answer, charged", () => {
+    it.each([
+      ["TikTok", tt(TT_NO_COMMENTS_ID)],
+      ["YouTube", yt(SC_YT_NO_COMMENTS_ID)],
+    ])("%s: empty list, not disabled, charged the comments price", async (_label, ref) => {
+      const service = createVideoService({ provider: scrapeCreators(), ledger, cache: cache() });
+
+      const { comments } = await service.getVideoWithComments("alice", ref);
+
+      expect(loaded(comments)).toMatchObject({
+        value: { comments: [], disabled: false },
+        creditsCharged: PRICED.comments,
+      });
+      expect(await ledger.getUsage("alice")).toMatchObject({
+        used: PRICED.videoDetails + PRICED.comments,
+      });
+    });
+  });
+
+  describe("3. failed: free, and the video still loads", () => {
+    it("returns the video plus the comments error, refunding the comments charge", async () => {
+      server.use(
+        http.get(youtubeUrl("commentThreads"), () => new HttpResponse(null, { status: 500 })),
+      );
+      const service = createVideoService({ provider: youtubeApi(), ledger, cache: cache() });
+
+      const { video, comments } = await service.getVideoWithComments("alice", yt(VIDEO_ID));
+
+      expect(video.value.id).toBe(VIDEO_ID);
+      expect(comments).toMatchObject({ ok: false, error: expect.any(UpstreamError) });
+      expect(await ledger.getUsage("alice")).toMatchObject({ used: PRICED.videoDetails });
+    });
+
+    it("retrying after a failure fetches comments again (failures are never cached)", async () => {
+      server.use(
+        http.get(youtubeUrl("commentThreads"), () => new HttpResponse(null, { status: 500 }), {
+          once: true,
+        }),
+      );
+      const service = createVideoService({ provider: youtubeApi(), ledger, cache: cache() });
+
+      await service.getVideoWithComments("alice", yt(VIDEO_ID));
+      const retry = await service.getVideoWithComments("alice", yt(VIDEO_ID));
+
+      expect(loaded(retry.comments).value.comments).toHaveLength(2);
+      expect(retry.video.source).toBe("cache"); // the video isn't paid for twice
+    });
+
+    it("can afford the video but not the comments: video shown, comments say why", async () => {
+      ledger = new InMemoryCreditLedger({ limit: PRICED.videoDetails, costs: PRICED });
+      const service = createVideoService({ provider: youtubeApi(), ledger, cache: cache() });
+
+      const { video, comments } = await service.getVideoWithComments("alice", yt(VIDEO_ID));
+
+      expect(video.creditsCharged).toBe(PRICED.videoDetails);
+      expect(comments).toMatchObject({ ok: false, error: expect.any(CreditLimitError) });
+      expect(youtubeCalls.commentThreads).toBe(0);
+    });
   });
 });
