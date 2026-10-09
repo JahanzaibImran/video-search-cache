@@ -6,6 +6,7 @@ import { formatCredits } from "@/lib/format";
 import { youtubeErrorBody } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
+import { scCalls } from "@/test/msw/scrapecreators-handlers";
 import { apiRequest, setupApp } from "@/test/routes";
 import { GET } from "./route";
 
@@ -24,7 +25,7 @@ describe("GET /api/search", () => {
     expect(body.results).toHaveLength(2);
     expect(body.results[0]).toMatchObject({ id: "vid00000001", channelTitle: "Channel 1" });
     expect(body.meta).toMatchObject({
-      cacheKey: "yt:search:react hooks",
+      cacheKey: "youtube:search:react hooks",
       source: "upstream",
       cached: false,
       creditsCharged: CREDIT_COSTS.search,
@@ -126,6 +127,48 @@ describe("GET /api/search", () => {
 
     expect(response.status).toBe(503);
     expect(((await response.json()) as ApiErrorResponse).error.code).toBe("NOT_CONFIGURED");
+  });
+
+  it("rejects an unknown platform with 400", async () => {
+    const response = await GET(
+      apiRequest("/api/search?q=cats&platform=vimeo", { userId: "alice" }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 422 for a TikTok search on the YouTube Data API provider, free", async () => {
+    const response = await GET(
+      apiRequest("/api/search?q=cats&platform=tiktok", { userId: "alice" }),
+    );
+    const body = (await response.json()) as ApiErrorResponse;
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe("UNSUPPORTED");
+    expect(body.credits?.used).toBe(0);
+  });
+
+  describe("with VIDEO_PROVIDER=scrapecreators", () => {
+    beforeEach(() => setupApp({ VIDEO_PROVIDER: "scrapecreators" }));
+
+    it.each(["youtube", "tiktok"] as const)(
+      "searches %s through ScrapeCreators",
+      async (platform) => {
+        const response = await GET(
+          apiRequest(`/api/search?q=WNBA&platform=${platform}`, { userId: "alice" }),
+        );
+        const body = (await response.json()) as SearchResponse;
+
+        expect(response.status).toBe(200);
+        expect(body.platform).toBe(platform);
+        expect(body.results.every((r) => r.platform === platform)).toBe(true);
+        expect(body.meta).toMatchObject({
+          cacheKey: `${platform}:search:wnba`,
+          creditsCharged: CREDIT_COSTS.search,
+        });
+        expect(scCalls.total).toBe(1);
+        expect(youtubeCalls.total).toBe(0);
+      },
+    );
   });
 
   describe("user identity", () => {

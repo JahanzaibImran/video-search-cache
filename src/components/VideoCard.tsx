@@ -45,9 +45,11 @@ export function VideoCard({ video, cached, fetchedAt, creditsCharged, onSelect }
             </p>
             <CacheBadge cached={cached} fetchedAt={fetchedAt} creditsCharged={creditsCharged} />
           </div>
-          <p className="text-xs text-zinc-400">
-            <time dateTime={video.publishedAt}>{formatDate(video.publishedAt)}</time>
-          </p>
+          {video.publishedAt && (
+            <p className="text-xs text-zinc-400">
+              <time dateTime={video.publishedAt}>{formatDate(video.publishedAt)}</time>
+            </p>
+          )}
         </div>
       </button>
     </article>

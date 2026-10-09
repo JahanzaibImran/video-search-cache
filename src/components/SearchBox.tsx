@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 export interface SearchBoxProps {
-  /** Called with the trimmed query once typing pauses, or immediately on Enter. */
+  /** Called with the trimmed query (or pasted link) once typing pauses, or immediately on Enter. */
   onSearch: (query: string) => void;
   isLoading?: boolean;
   debounceMs?: number;
@@ -15,7 +15,8 @@ export function SearchBox({
   onSearch,
   isLoading = false,
   debounceMs = 400,
-  maxLength = 100,
+  // Generous so long pasted TikTok/YouTube links aren't cut off; the server limits search text to 100.
+  maxLength = 500,
 }: SearchBoxProps) {
   const [value, setValue] = useState("");
   const debounced = useDebouncedValue(value, debounceMs);
@@ -45,7 +46,7 @@ export function SearchBox({
       className="relative"
     >
       <label htmlFor="video-search" className="sr-only">
-        Search YouTube videos
+        Search videos or paste a YouTube or TikTok link
       </label>
       <svg
         aria-hidden="true"
@@ -65,7 +66,7 @@ export function SearchBox({
         value={value}
         onChange={(event) => setValue(event.target.value)}
         maxLength={maxLength}
-        placeholder="Search videos, e.g. react hooks"
+        placeholder="Search, or paste a YouTube / TikTok link"
         autoComplete="off"
         aria-busy={isLoading}
         className="w-full rounded-xl border border-zinc-200 bg-white py-3.5 pr-12 pl-12 text-base shadow-sm transition outline-none placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-4 focus:ring-zinc-200/60"

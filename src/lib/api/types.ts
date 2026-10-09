@@ -4,10 +4,25 @@
  */
 import type { CacheSource } from "@/lib/cache";
 import type { CreditUsage } from "@/lib/credits";
-import type { CommentsResult, VideoDetails, VideoSummary } from "@/lib/youtube";
+import type {
+  CommentsResult,
+  Platform,
+  TranscriptResult,
+  VideoDetails,
+  VideoRef,
+  VideoSummary,
+} from "@/lib/providers/types";
 
-export type { CreditUsage, CommentsResult, VideoDetails, VideoSummary };
-export type { VideoComment } from "@/lib/youtube";
+export type {
+  CommentsResult,
+  CreditUsage,
+  Platform,
+  TranscriptResult,
+  VideoDetails,
+  VideoRef,
+  VideoSummary,
+};
+export type { VideoComment } from "@/lib/providers/types";
 
 export interface CacheMeta {
   cacheKey: string;
@@ -22,6 +37,7 @@ export interface CacheMeta {
 
 export interface SearchResponse {
   query: string;
+  platform: Platform;
   results: VideoSummary[];
   meta: CacheMeta;
   credits: CreditUsage;
@@ -33,6 +49,16 @@ export interface VideoCommentsResponse {
   credits: CreditUsage;
 }
 
+export interface TranscriptResponse {
+  transcript: { data: TranscriptResult; meta: CacheMeta };
+  credits: CreditUsage;
+}
+
+/** GET /api/resolve: a pasted link turned into a video reference. Free. */
+export interface ResolveResponse {
+  ref: VideoRef;
+}
+
 export interface CreditsResponse {
   credits: CreditUsage;
 }
@@ -41,6 +67,7 @@ export type ApiErrorCode =
   | "INVALID_INPUT"
   | "CREDIT_LIMIT_REACHED"
   | "NOT_FOUND"
+  | "UNSUPPORTED"
   | "UPSTREAM_RATE_LIMITED"
   | "UPSTREAM_ERROR"
   | "NOT_CONFIGURED"

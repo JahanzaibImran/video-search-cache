@@ -6,6 +6,8 @@ import { VideoCard } from "./VideoCard";
 
 const video: VideoSummary = {
   id: "vid00000001",
+  platform: "youtube",
+  url: "https://www.youtube.com/watch?v=vid00000001",
   title: "Learn React Hooks & more in 10 minutes",
   description: "A quick tour",
   channelTitle: "Hooked on Code",

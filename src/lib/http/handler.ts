@@ -6,7 +6,7 @@ import { ACTION_LABELS, CreditLimitError, type CreditUsage } from "@/lib/credits
 import { AppError, InvalidInputError } from "@/lib/errors";
 import { formatCredits } from "@/lib/format";
 import type { ChargedResult } from "@/lib/services/video-service";
-import { RateLimitError } from "@/lib/youtube";
+import { RateLimitError } from "@/lib/providers/errors";
 import { USER_ID_COOKIE, resolveUser, type RequestUser } from "./user";
 
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
@@ -15,6 +15,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   INVALID_INPUT: 400,
   CREDIT_LIMIT_REACHED: 402,
   NOT_FOUND: 404,
+  UNSUPPORTED: 422,
   UPSTREAM_RATE_LIMITED: 503,
   UPSTREAM_ERROR: 502,
   NOT_CONFIGURED: 503,
@@ -27,9 +28,12 @@ const MESSAGE_BY_CODE: Record<ApiErrorCode, string> = {
   CREDIT_LIMIT_REACHED:
     "You don't have enough credits for that. Anything already cached is still free to view.",
   NOT_FOUND: "That video couldn't be found. It may be private or deleted.",
-  UPSTREAM_RATE_LIMITED: "YouTube is rate-limiting us right now. Please try again shortly.",
-  UPSTREAM_ERROR: "YouTube didn't respond as expected. Please try again.",
-  NOT_CONFIGURED: "The server is missing its YouTube API key.",
+  UNSUPPORTED: "The current video provider doesn't support that. No credits were used.",
+  UPSTREAM_RATE_LIMITED:
+    "The video provider is rate-limiting us right now. Please try again shortly.",
+  UPSTREAM_ERROR:
+    "The video provider didn't respond as expected, so nothing was charged. Please try again.",
+  NOT_CONFIGURED: "The server is missing its video provider API key.",
   INTERNAL_ERROR: "Something went wrong on our side.",
 };
 

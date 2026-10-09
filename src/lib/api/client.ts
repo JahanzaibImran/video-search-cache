@@ -3,8 +3,12 @@ import type {
   ApiErrorResponse,
   CreditUsage,
   CreditsResponse,
+  Platform,
+  ResolveResponse,
   SearchResponse,
+  TranscriptResponse,
   VideoCommentsResponse,
+  VideoRef,
 } from "./types";
 
 /** An error response from our own API, carrying its code and the user's latest balance. */
@@ -42,10 +46,20 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return body as T;
 }
 
+const videoPath = ({ platform, id }: VideoRef) =>
+  `/api/videos/${encodeURIComponent(platform)}/${encodeURIComponent(id)}`;
+
 export const api = {
-  search: (query: string, signal?: AbortSignal) =>
-    getJson<SearchResponse>(`/api/search?q=${encodeURIComponent(query)}`, signal),
-  videoComments: (videoId: string, signal?: AbortSignal) =>
-    getJson<VideoCommentsResponse>(`/api/videos/${encodeURIComponent(videoId)}/comments`, signal),
+  search: (query: string, platform: Platform, signal?: AbortSignal) =>
+    getJson<SearchResponse>(
+      `/api/search?q=${encodeURIComponent(query)}&platform=${encodeURIComponent(platform)}`,
+      signal,
+    ),
+  videoComments: (ref: VideoRef, signal?: AbortSignal) =>
+    getJson<VideoCommentsResponse>(videoPath(ref), signal),
+  transcript: (ref: VideoRef, signal?: AbortSignal) =>
+    getJson<TranscriptResponse>(`${videoPath(ref)}/transcript`, signal),
+  resolve: (url: string, signal?: AbortSignal) =>
+    getJson<ResolveResponse>(`/api/resolve?url=${encodeURIComponent(url)}`, signal),
   credits: (signal?: AbortSignal) => getJson<CreditsResponse>("/api/credits", signal),
 };
