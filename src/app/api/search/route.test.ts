@@ -6,7 +6,7 @@ import { formatCredits } from "@/lib/format";
 import { youtubeErrorBody } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
-import { scCalls } from "@/test/msw/scrapecreators-handlers";
+import { scCalls, scUrl } from "@/test/msw/scrapecreators-handlers";
 import { apiRequest, setupApp } from "@/test/routes";
 import { GET } from "./route";
 
@@ -169,6 +169,51 @@ describe("GET /api/search", () => {
         expect(youtubeCalls.total).toBe(0);
       },
     );
+  });
+
+  describe("a malformed provider response (Step 5)", () => {
+    beforeEach(() => {
+      setupApp({ VIDEO_PROVIDER: "scrapecreators" });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      server.use(
+        http.get(scUrl("/v1/youtube/search"), () =>
+          HttpResponse.json({ success: true, videos: [{ id: 42, title: null }] }),
+        ),
+      );
+    });
+
+    it("becomes a 502 UPSTREAM_ERROR with a clear, fixed message", async () => {
+      const response = await search("cats");
+      const body = (await response.json()) as ApiErrorResponse;
+
+      expect(response.status).toBe(502);
+      expect(body.error).toEqual({
+        code: "UPSTREAM_ERROR",
+        message:
+          "The video provider didn't respond as expected, so nothing was charged. Please try again.",
+      });
+    });
+
+    it("doesn't leak internals (endpoint, Zod issues) to the browser, but logs them", async () => {
+      const text = await (await search("cats")).text();
+
+      // No provider name, endpoint path, or Zod issue codes ("invalid_type", "too_small"...).
+      expect(text).not.toMatch(/scrapecreators|zod|invalid_type|\/v1\/|issues/i);
+      expect(console.error).toHaveBeenCalledWith(
+        "[api]",
+        expect.objectContaining({ reason: "invalid_response" }),
+      );
+    });
+
+    it("charges nothing and caches nothing, so a retry asks again", async () => {
+      const first = (await (await search("cats")).json()) as ApiErrorResponse;
+      server.resetHandlers(); // the provider recovers
+      const retry = (await (await search("cats")).json()) as SearchResponse;
+
+      expect(first.credits?.used).toBe(0);
+      expect(retry.meta.source).toBe("upstream");
+      expect(retry.credits.used).toBe(CREDIT_COSTS.search);
+    });
   });
 
   describe("user identity", () => {

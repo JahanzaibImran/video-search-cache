@@ -77,6 +77,7 @@ export function createYouTubeClient(options: YouTubeClientOptions): YouTubeClien
     } catch (cause) {
       throw new UpstreamError(`YouTube ${endpoint} returned invalid JSON`, {
         status: response.status,
+        reason: "invalid_json",
         cause,
       });
     }
@@ -85,6 +86,7 @@ export function createYouTubeClient(options: YouTubeClientOptions): YouTubeClien
     if (!parsed.success) {
       throw new UpstreamError(`YouTube ${endpoint} returned an unexpected response shape`, {
         status: response.status,
+        reason: "invalid_response",
         cause: parsed.error,
       });
     }
