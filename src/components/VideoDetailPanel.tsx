@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useApiQuery, type QueryState } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api/client";
 import type {
+  ApiError,
   CreditUsage,
   VideoComment,
   VideoCommentsResponse,
@@ -149,7 +150,7 @@ export function VideoDetailPanel({
               <h3 id="comments-heading" className="font-medium text-zinc-900">
                 Top comments
               </h3>
-              {details && (
+              {details && "meta" in details.comments && (
                 <CacheBadge
                   cached={details.comments.meta.cached}
                   fetchedAt={details.comments.meta.fetchedAt}
@@ -195,27 +196,29 @@ function CommentsBody({ state, onRetry }: Pick<VideoDetailPanelProps, "state" | 
         </ul>
       );
     case "error":
-      return (
-        <StatusMessage
-          tone={state.error.code === "CREDIT_LIMIT_REACHED" ? "warning" : "error"}
-          title={
-            state.error.code === "CREDIT_LIMIT_REACHED"
-              ? "Not enough credits"
-              : "Couldn't load comments"
-          }
-          action={
-            state.error.code !== "CREDIT_LIMIT_REACHED" && state.error.code !== "NOT_FOUND" ? (
-              <RetryButton onClick={onRetry} />
-            ) : undefined
-          }
-        >
-          {state.error.message}
-        </StatusMessage>
-      );
+      // The whole request failed (e.g. the video itself couldn't be loaded).
+      return <CommentsError error={state.error} onRetry={onRetry} />;
     case "success": {
-      const { comments, disabled } = state.data.comments.data;
-      if (disabled) return <StatusMessage title="Comments are turned off for this video." />;
-      if (comments.length === 0) return <StatusMessage title="No comments yet." />;
+      const slot = state.data.comments;
+      // State 3: the comments fetch failed on its own. Refunded, so it cost nothing.
+      if ("error" in slot) return <CommentsError error={slot.error} onRetry={onRetry} />;
+      const { comments, disabled } = slot.data;
+      // State 1: the uploader turned comments off. Not charged.
+      if (disabled) {
+        return (
+          <StatusMessage title="Comments are turned off for this video.">
+            The uploader has disabled comments. No credits were used.
+          </StatusMessage>
+        );
+      }
+      // State 2: comments are on, there just aren't any yet.
+      if (comments.length === 0) {
+        return (
+          <StatusMessage title="No comments yet.">
+            Comments are open, but nobody has commented on this video so far.
+          </StatusMessage>
+        );
+      }
       return (
         <ul className="divide-y divide-zinc-100">
           {comments.map((comment) => (
@@ -225,6 +228,21 @@ function CommentsBody({ state, onRetry }: Pick<VideoDetailPanelProps, "state" | 
       );
     }
   }
+}
+
+function CommentsError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
+  const noCredits = error.code === "CREDIT_LIMIT_REACHED";
+  return (
+    <StatusMessage
+      tone={noCredits ? "warning" : "error"}
+      title={noCredits ? "Not enough credits for comments" : "Couldn't load comments"}
+      action={
+        !noCredits && error.code !== "NOT_FOUND" ? <RetryButton onClick={onRetry} /> : undefined
+      }
+    >
+      {error.message}
+    </StatusMessage>
+  );
 }
 
 function CommentItem({ comment }: { comment: VideoComment }) {

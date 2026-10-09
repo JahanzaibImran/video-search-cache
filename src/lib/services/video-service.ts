@@ -31,9 +31,13 @@ export interface ChargedResult<T> extends CachedResult<T> {
   creditsCharged: number;
 }
 
+/** Comments either loaded (possibly empty, possibly turned off) or failed on their own. */
+export type CommentsOutcome =
+  { ok: true; result: ChargedResult<CommentsResult> } | { ok: false; error: unknown };
+
 export interface VideoWithComments {
   video: ChargedResult<VideoDetails>;
-  comments: ChargedResult<CommentsResult>;
+  comments: CommentsOutcome;
 }
 
 export interface VideoService {
@@ -109,6 +113,47 @@ export function createVideoService({
     }
   }
 
+  /**
+   * Three different "no comments shown" situations, kept apart on purpose:
+   * - turned off: free. We know before calling (the video says so) or the
+   *   provider tells us; either way the user got nothing to read.
+   * - none yet:   charged. The call worked and "zero comments" is a real answer.
+   * - failed:     free (refunded), and reported without hiding the video.
+   */
+  async function loadComments(
+    userId: string,
+    ref: VideoRef,
+    video: ChargedResult<VideoDetails>,
+  ): Promise<CommentsOutcome> {
+    if (video.value.commentsDisabled === true) {
+      // Derived from the (cached) video details: no upstream call, so it's
+      // reported like a cache hit and costs nothing.
+      return {
+        ok: true,
+        result: {
+          key: cacheKeys.comments(ref),
+          value: { comments: [], disabled: true },
+          fetchedAt: video.fetchedAt,
+          source: "cache",
+          creditsCharged: 0,
+        },
+      };
+    }
+    try {
+      const result = await cachedUpstream(
+        userId,
+        "comments",
+        cacheKeys.comments(ref),
+        () => provider.getComments(ref),
+        ttl.comments,
+        (comments) => !comments.disabled,
+      );
+      return { ok: true, result };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
   return {
     provider,
 
@@ -137,14 +182,7 @@ export function createVideoService({
         () => provider.getVideo(ref),
         ttl.video,
       );
-      const comments = await cachedUpstream(
-        userId,
-        "comments",
-        cacheKeys.comments(ref),
-        () => provider.getComments(ref),
-        ttl.comments,
-      );
-      return { video, comments };
+      return { video, comments: await loadComments(userId, ref, video) };
     },
 
     async getTranscript(userId, ref) {
