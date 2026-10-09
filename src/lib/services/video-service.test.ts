@@ -11,7 +11,7 @@ import {
 import { createScrapeCreatorsClient } from "@/lib/providers/scrapecreators/client";
 import { UnsupportedError } from "@/lib/providers/errors";
 import { COMMENTS_DISABLED_VIDEO_ID, MISSING_VIDEO_ID, VIDEO_ID } from "@/test/fixtures";
-import { SC_TEST_API_KEY, scCalls } from "@/test/msw/scrapecreators-handlers";
+import { SC_TEST_API_KEY, scCalls, scUrl } from "@/test/msw/scrapecreators-handlers";
 import {
   SC_YT_COMMENTS_OFF_ID,
   SC_YT_NO_CAPTIONS_ID,
@@ -21,6 +21,7 @@ import {
   TT_NO_COMMENTS_ID,
   TT_NO_TRANSCRIPT_ID,
   TT_VIDEO_ID,
+  scYoutubeVideo,
 } from "@/test/scrapecreators-fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
@@ -422,5 +423,27 @@ describe("VideoService: comments turned off vs none yet vs failed", () => {
       expect(comments).toMatchObject({ ok: false, error: expect.any(CreditLimitError) });
       expect(youtubeCalls.commentThreads).toBe(0);
     });
+  });
+});
+
+describe("VideoService: the provider answers with a different video (Step 5)", () => {
+  it("rejects it, refunds, and never caches it under the requested key", async () => {
+    const ledger = new InMemoryCreditLedger({ limit: 20 });
+    const store = new InMemoryCacheStore();
+    const service = createVideoService({
+      provider: createScrapeCreatorsClient({ apiKey: SC_TEST_API_KEY }),
+      ledger,
+      cache: createCachedFetch(store),
+    });
+    server.use(
+      http.get(scUrl("/v1/youtube/video"), () => HttpResponse.json(scYoutubeVideo("otherVideo1"))),
+    );
+
+    await expect(service.getVideoWithComments("alice", yt(SC_YT_VIDEO_ID))).rejects.toMatchObject({
+      constructor: UpstreamError,
+      reason: "invalid_response",
+    });
+    expect(await store.get(`youtube:video:${SC_YT_VIDEO_ID}`)).toBeUndefined();
+    expect(await ledger.getUsage("alice")).toMatchObject({ used: 0 });
   });
 });

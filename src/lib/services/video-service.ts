@@ -7,7 +7,7 @@ import {
   type CreditLedger,
   type CreditUsage,
 } from "@/lib/credits";
-import { UnsupportedError } from "@/lib/providers/errors";
+import { UnsupportedError, UpstreamError } from "@/lib/providers/errors";
 import type {
   CommentsResult,
   Feature,
@@ -53,6 +53,22 @@ export interface VideoService {
  * are charged only when the cache actually has to call upstream. It depends on
  * the `VideoProvider` interface, never on a concrete API.
  */
+/**
+ * A schema can say a response is *well-formed*; only we can say it's the video
+ * we asked for. Checked before caching, so a wrong answer is never stored
+ * under this video's key (and served to everyone until it expires). Throwing
+ * also refunds the charge.
+ */
+function assertSameVideo(ref: VideoRef, video: VideoDetails): VideoDetails {
+  if (video.platform !== ref.platform || video.id !== ref.id) {
+    throw new UpstreamError(
+      `Provider returned ${video.platform}:${video.id} when asked for ${ref.platform}:${ref.id}`,
+      { reason: "invalid_response" },
+    );
+  }
+  return video;
+}
+
 export function createVideoService({
   provider,
   ledger,
@@ -179,7 +195,7 @@ export function createVideoService({
         userId,
         "videoDetails",
         cacheKeys.video(ref),
-        () => provider.getVideo(ref),
+        async () => assertSameVideo(ref, await provider.getVideo(ref)),
         ttl.video,
       );
       return { video, comments: await loadComments(userId, ref, video) };

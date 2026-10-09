@@ -86,7 +86,21 @@ export function createScrapeCreatorsClient(options: ScrapeCreatorsClientOptions)
     try {
       body = await response.json();
     } catch (cause) {
-      throw new UpstreamError(`${label} returned invalid JSON`, { status: response.status, cause });
+      throw new UpstreamError(`${label} returned invalid JSON`, {
+        status: response.status,
+        reason: "invalid_json",
+        cause,
+      });
+    }
+
+    // Checked before the schema: an error envelope is missing data fields by design,
+    // and should be reported as a provider failure, not as "unexpected shape".
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      (body as { success?: unknown }).success === false
+    ) {
+      throw new UpstreamError(`${label} reported success: false`, { status: response.status });
     }
 
     const parsed = schema.safeParse(body);
@@ -96,10 +110,6 @@ export function createScrapeCreatorsClient(options: ScrapeCreatorsClientOptions)
         reason: "invalid_response",
         cause: parsed.error,
       });
-    }
-    const data = parsed.data as { success?: boolean };
-    if (data.success === false) {
-      throw new UpstreamError(`${label} reported success: false`, { status: response.status });
     }
     return parsed.data;
   }
