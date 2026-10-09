@@ -27,6 +27,11 @@ export function plural(count: number, singular: string, pluralForm = `${singular
   return count === 1 ? singular : pluralForm;
 }
 
+/** 1 -> "1 credit", 3 -> "3 credits". */
+export function formatCredits(count: number): string {
+  return `${count} ${plural(count, "credit")}`;
+}
+
 /** ISO 8601 duration -> clock time: "PT10M3S" -> "10:03", "PT1H2M" -> "1:02:00". */
 export function formatDuration(iso: string): string | null {
   const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso);

@@ -1,6 +1,11 @@
 import { createCachedFetch, InMemoryCacheStore } from "@/lib/cache";
 import { loadConfig, type AppConfig } from "@/lib/config";
-import { InMemoryCreditLedger, type CreditLedger } from "@/lib/credits";
+import {
+  createLedgerState,
+  InMemoryCreditLedger,
+  type CreditLedger,
+  type LedgerState,
+} from "@/lib/credits";
 import { ConfigError } from "@/lib/errors";
 import { createVideoService, type VideoService } from "@/lib/services/video-service";
 import { createYouTubeClient } from "@/lib/youtube";
@@ -16,10 +21,35 @@ export interface Container {
   videoService: VideoService | null;
 }
 
+/**
+ * Plain data that must outlive a dev hot reload: cached responses and the
+ * credit history. Only data lives here, never objects with behaviour.
+ *
+ * Why: Next.js re-runs edited modules in dev, but anything stored on
+ * `globalThis` survives. We used to keep the whole container there, so after
+ * editing the ledger the *old* ledger object (with the old prices) kept
+ * serving requests until the dev server restarted.
+ */
+interface PersistentState {
+  cacheStore: InMemoryCacheStore;
+  ledgerState: LedgerState;
+}
+
+const globalStore = globalThis as typeof globalThis & { __videoSearchState?: PersistentState };
+
+function persistentState(): PersistentState {
+  globalStore.__videoSearchState ??= {
+    cacheStore: new InMemoryCacheStore({ maxEntries: 5_000 }),
+    ledgerState: createLedgerState(),
+  };
+  return globalStore.__videoSearchState;
+}
+
 function createContainer(): Container {
   const config = loadConfig();
-  const ledger = new InMemoryCreditLedger({ limit: config.creditLimit });
-  const cache = createCachedFetch(new InMemoryCacheStore({ maxEntries: 5_000 }));
+  const { cacheStore, ledgerState } = persistentState();
+  const ledger = new InMemoryCreditLedger({ limit: config.creditLimit, state: ledgerState });
+  const cache = createCachedFetch(cacheStore);
 
   const videoService = config.youtubeApiKey
     ? createVideoService({
@@ -35,12 +65,14 @@ function createContainer(): Container {
   return { config, ledger, videoService };
 }
 
-// Kept on globalThis so in-memory state survives Next.js dev-mode module reloads.
-const globalStore = globalThis as typeof globalThis & { __videoSearchContainer?: Container };
+// Module scope, not globalThis: when this module (or anything it imports, such
+// as the ledger or the cost table) is edited, it is re-run and the container is
+// rebuilt from the new code, on top of the persisted data above.
+let container: Container | undefined;
 
 export function getContainer(): Container {
-  globalStore.__videoSearchContainer ??= createContainer();
-  return globalStore.__videoSearchContainer;
+  container ??= createContainer();
+  return container;
 }
 
 /** Returns the video service, or throws ConfigError when the API key is missing. */
@@ -56,5 +88,6 @@ export function getVideoService(): VideoService {
 
 /** Test helper: drop all state so the next `getContainer()` re-reads env. */
 export function resetContainer(): void {
-  delete globalStore.__videoSearchContainer;
+  container = undefined;
+  delete globalStore.__videoSearchState;
 }

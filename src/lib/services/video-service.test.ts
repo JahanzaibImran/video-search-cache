@@ -15,7 +15,7 @@ describe("VideoService (cache + credits + YouTube client)", () => {
   let service: VideoService;
 
   beforeEach(() => {
-    ledger = new InMemoryCreditLedger({ limit: LIMIT });
+    ledger = new InMemoryCreditLedger({ limit: LIMIT, costPerCall: 1 });
     service = createVideoService({
       youtube: createYouTubeClient({ apiKey: "test-key" }),
       ledger,

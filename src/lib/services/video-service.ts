@@ -16,13 +16,18 @@ export interface VideoServiceDeps {
   ttlMs?: Partial<Record<keyof typeof CACHE_TTL_MS, number>>;
 }
 
+/** A cached result plus what this particular request was charged (0 for hits and joined fetches). */
+export interface ChargedResult<T> extends CachedResult<T> {
+  creditsCharged: number;
+}
+
 export interface VideoWithComments {
-  video: CachedResult<VideoDetails>;
-  comments: CachedResult<CommentsResult>;
+  video: ChargedResult<VideoDetails>;
+  comments: ChargedResult<CommentsResult>;
 }
 
 export interface VideoService {
-  search(userId: string, query: string): Promise<CachedResult<VideoSummary[]>>;
+  search(userId: string, query: string): Promise<ChargedResult<VideoSummary[]>>;
   getVideoWithComments(userId: string, videoId: string): Promise<VideoWithComments>;
   getUsage(userId: string): Promise<CreditUsage>;
 }
@@ -51,13 +56,26 @@ export function createVideoService({
     key: string,
     call: () => Promise<T>,
     ttlMs: number,
-  ): Promise<CachedResult<T>> {
-    const attempt = () =>
-      cache.getOrFetch(
+  ): Promise<ChargedResult<T>> {
+    // Set only when *this* request's fetcher ran and paid; the cache stores the
+    // bare value, so a later hit can never claim a cost.
+    let creditsCharged = 0;
+    const attempt = async (): Promise<ChargedResult<T>> => {
+      const result = await cache.getOrFetch(
         key,
-        () => withCredit(ledger, { userId, action, cacheKey: key }, call),
+        async () => {
+          const { value, charged } = await withCredit(
+            ledger,
+            { userId, action, cacheKey: key },
+            call,
+          );
+          creditsCharged = charged;
+          return value;
+        },
         ttlMs,
       );
+      return { ...result, creditsCharged };
+    };
 
     try {
       return await attempt();
