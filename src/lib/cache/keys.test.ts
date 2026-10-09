@@ -14,16 +14,30 @@ describe("normalizeQuery", () => {
 
 describe("cacheKeys", () => {
   it('maps "React Hooks" and "  react   hooks " to the same search key', () => {
-    expect(cacheKeys.search("React Hooks")).toBe(cacheKeys.search("  react   hooks "));
-    expect(cacheKeys.search("React Hooks")).toBe("yt:search:react hooks");
+    expect(cacheKeys.search("youtube", "React Hooks")).toBe(
+      cacheKeys.search("youtube", "  react   hooks "),
+    );
+    expect(cacheKeys.search("youtube", "React Hooks")).toBe("youtube:search:react hooks");
   });
 
   it("keeps different queries distinct", () => {
-    expect(cacheKeys.search("react hooks")).not.toBe(cacheKeys.search("react hook"));
+    expect(cacheKeys.search("youtube", "react hooks")).not.toBe(
+      cacheKeys.search("youtube", "react hook"),
+    );
   });
 
-  it("builds video and comment keys without altering case-sensitive IDs", () => {
-    expect(cacheKeys.video("dQw4w9WgXcQ")).toBe("yt:video:dQw4w9WgXcQ");
-    expect(cacheKeys.comments("dQw4w9WgXcQ")).toBe("yt:comments:dQw4w9WgXcQ");
+  it("keeps the same query on different platforms distinct", () => {
+    expect(cacheKeys.search("youtube", "cats")).toBe("youtube:search:cats");
+    expect(cacheKeys.search("tiktok", "cats")).toBe("tiktok:search:cats");
+  });
+
+  it("builds {platform}:{type}:{id} keys without altering case-sensitive IDs", () => {
+    const ref = { platform: "youtube", id: "dQw4w9WgXcQ" } as const;
+    expect(cacheKeys.video(ref)).toBe("youtube:video:dQw4w9WgXcQ");
+    expect(cacheKeys.comments(ref)).toBe("youtube:comments:dQw4w9WgXcQ");
+    expect(cacheKeys.transcript(ref)).toBe("youtube:transcript:dQw4w9WgXcQ");
+    expect(cacheKeys.video({ platform: "tiktok", id: "7499229683859426602" })).toBe(
+      "tiktok:video:7499229683859426602",
+    );
   });
 });

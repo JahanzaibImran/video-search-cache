@@ -1,5 +1,5 @@
 import { createCachedFetch, InMemoryCacheStore } from "@/lib/cache";
-import { loadConfig, type AppConfig } from "@/lib/config";
+import { API_KEY_ENV, loadConfig, selectedApiKey, type AppConfig } from "@/lib/config";
 import {
   createLedgerState,
   InMemoryCreditLedger,
@@ -8,7 +8,9 @@ import {
 } from "@/lib/credits";
 import { ConfigError } from "@/lib/errors";
 import { createVideoService, type VideoService } from "@/lib/services/video-service";
-import { createYouTubeClient } from "@/lib/youtube";
+import { createScrapeCreatorsClient } from "@/lib/providers/scrapecreators/client";
+import type { VideoProvider } from "@/lib/providers/types";
+import { createYouTubeClient, createYouTubeProvider } from "@/lib/youtube";
 
 /**
  * Composition root: the one place concrete implementations are chosen.
@@ -17,7 +19,7 @@ import { createYouTubeClient } from "@/lib/youtube";
 export interface Container {
   config: AppConfig;
   ledger: CreditLedger;
-  /** `null` until YOUTUBE_API_KEY is configured. */
+  /** `null` until the selected provider's API key is configured. */
   videoService: VideoService | null;
 }
 
@@ -51,18 +53,24 @@ function createContainer(): Container {
   const ledger = new InMemoryCreditLedger({ limit: config.creditLimit, state: ledgerState });
   const cache = createCachedFetch(cacheStore);
 
-  const videoService = config.youtubeApiKey
-    ? createVideoService({
-        youtube: createYouTubeClient({
-          apiKey: config.youtubeApiKey,
-          baseUrl: config.youtubeApiBaseUrl,
-        }),
-        ledger,
-        cache,
-      })
-    : null;
+  const provider = createProvider(config);
+  const videoService = provider ? createVideoService({ provider, ledger, cache }) : null;
 
   return { config, ledger, videoService };
+}
+
+/** VIDEO_PROVIDER=youtube|scrapecreators picks the implementation; nothing else knows which one runs. */
+function createProvider(config: AppConfig): VideoProvider | null {
+  const apiKey = selectedApiKey(config);
+  if (!apiKey) return null;
+  switch (config.provider) {
+    case "youtube":
+      return createYouTubeProvider(
+        createYouTubeClient({ apiKey, baseUrl: config.youtubeApiBaseUrl }),
+      );
+    case "scrapecreators":
+      return createScrapeCreatorsClient({ apiKey, baseUrl: config.scrapeCreatorsApiBaseUrl });
+  }
 }
 
 // Module scope, not globalThis: when this module (or anything it imports, such
@@ -75,12 +83,13 @@ export function getContainer(): Container {
   return container;
 }
 
-/** Returns the video service, or throws ConfigError when the API key is missing. */
+/** Returns the video service, or throws ConfigError when the selected provider's key is missing. */
 export function getVideoService(): VideoService {
-  const { videoService } = getContainer();
+  const { config, videoService } = getContainer();
   if (!videoService) {
     throw new ConfigError(
-      "YOUTUBE_API_KEY is not set. Copy .env.example to .env.local and add a key.",
+      `${API_KEY_ENV[config.provider]} is not set (VIDEO_PROVIDER=${config.provider}). ` +
+        "Copy .env.example to .env.local and add a key.",
     );
   }
   return videoService;

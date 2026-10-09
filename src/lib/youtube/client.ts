@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { canonicalVideoUrl } from "@/lib/providers/urls";
 import { NotFoundError, RateLimitError, UpstreamError } from "./errors";
 import { decodeHtmlEntities } from "./html-entities";
 import {
@@ -112,6 +113,8 @@ export function createYouTubeClient(options: YouTubeClientOptions): YouTubeClien
 
       return {
         id: item.id,
+        platform: "youtube",
+        url: canonicalVideoUrl({ platform: "youtube", id: item.id }),
         title: item.snippet.title,
         description: item.snippet.description,
         channelTitle: item.snippet.channelTitle,
@@ -121,6 +124,8 @@ export function createYouTubeClient(options: YouTubeClientOptions): YouTubeClien
         viewCount: item.statistics?.viewCount ?? null,
         likeCount: item.statistics?.likeCount ?? null,
         commentCount: item.statistics?.commentCount ?? null,
+        // The Data API only says so when comments are requested (403 commentsDisabled).
+        commentsDisabled: null,
       };
     },
 
@@ -166,6 +171,8 @@ export function createYouTubeClient(options: YouTubeClientOptions): YouTubeClien
 function toVideoSummary(item: SearchListResponse["items"][number]): VideoSummary {
   return {
     id: item.id.videoId,
+    platform: "youtube",
+    url: canonicalVideoUrl({ platform: "youtube", id: item.id.videoId }),
     title: decodeHtmlEntities(item.snippet.title),
     description: decodeHtmlEntities(item.snippet.description),
     channelTitle: decodeHtmlEntities(item.snippet.channelTitle),

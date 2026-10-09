@@ -7,10 +7,20 @@ import {
   type CreditLedger,
   type CreditUsage,
 } from "@/lib/credits";
-import type { CommentsResult, VideoDetails, VideoSummary, YouTubeClient } from "@/lib/youtube";
+import { UnsupportedError } from "@/lib/providers/errors";
+import type {
+  CommentsResult,
+  Feature,
+  Platform,
+  TranscriptResult,
+  VideoDetails,
+  VideoProvider,
+  VideoRef,
+  VideoSummary,
+} from "@/lib/providers/types";
 
 export interface VideoServiceDeps {
-  youtube: YouTubeClient;
+  provider: VideoProvider;
   ledger: CreditLedger;
   cache: CachedFetch;
   ttlMs?: Partial<Record<keyof typeof CACHE_TTL_MS, number>>;
@@ -27,28 +37,38 @@ export interface VideoWithComments {
 }
 
 export interface VideoService {
-  search(userId: string, query: string): Promise<ChargedResult<VideoSummary[]>>;
-  getVideoWithComments(userId: string, videoId: string): Promise<VideoWithComments>;
+  readonly provider: VideoProvider;
+  search(userId: string, platform: Platform, query: string): Promise<ChargedResult<VideoSummary[]>>;
+  getVideoWithComments(userId: string, ref: VideoRef): Promise<VideoWithComments>;
+  getTranscript(userId: string, ref: VideoRef): Promise<ChargedResult<TranscriptResult>>;
   getUsage(userId: string): Promise<CreditUsage>;
 }
 
 /**
- * Application logic: every YouTube call goes through the cache, and a credit
- * is charged only when the cache actually has to call upstream.
+ * Application logic: every provider call goes through the cache, and credits
+ * are charged only when the cache actually has to call upstream. It depends on
+ * the `VideoProvider` interface, never on a concrete API.
  */
 export function createVideoService({
-  youtube,
+  provider,
   ledger,
   cache,
   ttlMs,
 }: VideoServiceDeps): VideoService {
   const ttl = { ...CACHE_TTL_MS, ...ttlMs };
 
+  /** Refuse unsupported requests up front: no charge, no ledger entry, no network call. */
+  function requireCapability(platform: Platform, feature: Feature) {
+    if (!provider.capabilities[platform][feature]) {
+      throw new UnsupportedError(`Provider "${provider.name}" can't do ${feature} on ${platform}`);
+    }
+  }
+
   /**
    * The charge lives inside the fetcher, and `getOrFetch` runs the fetcher only
    * on a real miss and only for the one caller leading a deduplicated fetch.
    * So cache hits and joined in-flight requests are free by construction, and
-   * a user with no credits left is stopped before any network call.
+   * a user who can't afford the call is stopped before any network call.
    */
   async function cachedUpstream<T>(
     userId: string,
@@ -56,6 +76,7 @@ export function createVideoService({
     key: string,
     call: () => Promise<T>,
     ttlMs: number,
+    billable?: (value: T) => boolean,
   ): Promise<ChargedResult<T>> {
     // Set only when *this* request's fetcher ran and paid; the cache stores the
     // bare value, so a later hit can never claim a cost.
@@ -68,6 +89,7 @@ export function createVideoService({
             ledger,
             { userId, action, cacheKey: key },
             call,
+            { billable },
           );
           creditsCharged = charged;
           return value;
@@ -88,36 +110,54 @@ export function createVideoService({
   }
 
   return {
-    search(userId, query) {
+    provider,
+
+    async search(userId, platform, query) {
+      requireCapability(platform, "search");
       const normalized = normalizeQuery(query);
       // Send the normalised query upstream too, so the cached payload matches its key exactly.
       return cachedUpstream(
         userId,
         "search",
-        cacheKeys.search(normalized),
-        () => youtube.searchVideos(normalized),
+        cacheKeys.search(platform, normalized),
+        () => provider.search(platform, normalized),
         ttl.search,
       );
     },
 
-    async getVideoWithComments(userId, videoId) {
+    async getVideoWithComments(userId, ref) {
+      requireCapability(ref.platform, "video");
+      requireCapability(ref.platform, "comments");
       // Sequential on purpose: if the video doesn't exist, we don't spend a
-      // second upstream call (and quota) discovering that its comments don't either.
+      // second upstream call (and credits) discovering that its comments don't either.
       const video = await cachedUpstream(
         userId,
         "videoDetails",
-        cacheKeys.video(videoId),
-        () => youtube.getVideo(videoId),
+        cacheKeys.video(ref),
+        () => provider.getVideo(ref),
         ttl.video,
       );
       const comments = await cachedUpstream(
         userId,
         "comments",
-        cacheKeys.comments(videoId),
-        () => youtube.getTopComments(videoId),
+        cacheKeys.comments(ref),
+        () => provider.getComments(ref),
         ttl.comments,
       );
       return { video, comments };
+    },
+
+    async getTranscript(userId, ref) {
+      requireCapability(ref.platform, "transcript");
+      return cachedUpstream(
+        userId,
+        "transcript",
+        cacheKeys.transcript(ref),
+        () => provider.getTranscript(ref),
+        ttl.transcript,
+        // "No transcript" is a normal answer: cached so we don't ask again, but free.
+        (result) => result.available,
+      );
     },
 
     getUsage(userId) {

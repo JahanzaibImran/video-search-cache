@@ -115,21 +115,41 @@ export class InMemoryCreditLedger implements CreditLedger {
   }
 }
 
+export interface WithCreditOptions<T> {
+  /**
+   * Whether a successful answer is worth paying for. Returning false refunds
+   * the charge, e.g. "this video has no transcript": the call worked, but the
+   * user got nothing they can use, so it's free.
+   */
+  billable?: (value: T) => boolean;
+}
+
 /**
  * Charges for one call, runs the upstream call, and refunds the charge if the
- * call fails. If the user can't afford it, `call` is never invoked. Returns how
- * much was charged, so callers can report the real cost instead of assuming it.
+ * call fails (or its answer isn't billable). If the user can't afford it,
+ * `call` is never invoked. Returns how much was actually charged, so callers
+ * report the real cost instead of assuming it.
+ *
+ * The charge happens *before* the call on purpose: it reserves the credits
+ * atomically, so two parallel requests can't both spend the last credit.
  */
 export async function withCredit<T>(
   ledger: CreditLedger,
   input: ChargeInput,
   call: () => Promise<T>,
+  { billable }: WithCreditOptions<T> = {},
 ): Promise<{ value: T; charged: number }> {
   const charge = await ledger.charge(input);
+  let value: T;
   try {
-    return { value: await call(), charged: charge.amount };
+    value = await call();
   } catch (error) {
     await ledger.refund(charge.id);
     throw error;
   }
+  if (billable && !billable(value)) {
+    await ledger.refund(charge.id);
+    return { value, charged: 0 };
+  }
+  return { value, charged: charge.amount };
 }

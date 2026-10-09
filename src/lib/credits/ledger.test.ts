@@ -209,6 +209,21 @@ describe("withCredit", () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
+  it("refunds an answer that isn't billable, and reports 0 charged", async () => {
+    const ledger = ledgerWith({ costs: PRICED });
+
+    const result = await withCredit(
+      ledger,
+      charge("transcript"),
+      async () => ({ available: false }),
+      { billable: (value) => value.available },
+    );
+
+    expect(result).toEqual({ value: { available: false }, charged: 0 });
+    expect(await ledger.getUsage("alice")).toMatchObject({ used: 0 });
+    expect((await ledger.getEntries("alice")).map((e) => e.kind)).toEqual(["charge", "refund"]);
+  });
+
   it("refunds the full price when the upstream call fails (failures are free)", async () => {
     const ledger = ledgerWith({ costs: PRICED });
 
