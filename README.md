@@ -38,15 +38,15 @@ sequenceDiagram
         C->>L: charge(user) · throws CreditLimitError at limit
         C->>Y: search.list
         Y-->>C: response (Zod-validated)
-        C-->>R: value (source: upstream) · CREDITS_PER_CALL credits (src/lib/credits/costs.ts)
+        C-->>R: value (source: upstream) · CREDIT_COSTS.search credits (src/lib/credits/costs.ts)
     end
 ```
 
 ### Credit rules
 
-- Each upstream API call costs `CREDITS_PER_CALL` credits, set in one place: [`src/lib/credits/costs.ts`](src/lib/credits/costs.ts). The ledger, the API response (`meta.creditsCharged`) and the UI all read it from there. Users start with `CREDIT_LIMIT` (default 20).
+- Each kind of upstream call has its own price, set in one place: [`src/lib/credits/costs.ts`](src/lib/credits/costs.ts) (search 3, video details 1, comments 2, transcript 2). The ledger, the API response (`meta.creditsCharged`) and the UI all read it from there. Users start with `CREDIT_LIMIT` (default 20).
 - Opening an uncached video makes up to 2 upstream calls (`videos.list` + `commentThreads.list`), since each is cached separately.
-- A call is only allowed if the user can afford its full price; the balance never goes over the limit.
+- A call is only allowed if the user can afford that action's full price: with 2 credits left, a 3-credit search is refused (HTTP 402, message names the price) while a 1-credit video lookup still works.
 - Each ledger entry stores the `amount` charged, so changing the price later doesn't rewrite past charges.
 - At the limit, a miss fails with `CreditLimitError` (HTTP 402) **before** any network call.
 - If the upstream call fails, the credit is refunded with a compensating ledger entry. The ledger is append-only, and each entry records `userId`, `action`, `cacheKey` and `timestamp`.
@@ -111,8 +111,8 @@ npm run dev                  # http://localhost:3000
 Try it from the command line:
 
 ```bash
-curl -H "x-user-id: demo" "http://localhost:3000/api/search?q=react%20hooks"   # source: upstream, used: 1
-curl -H "x-user-id: demo" "http://localhost:3000/api/search?q=React%20Hooks"   # source: cache,    used: 1
+curl -H "x-user-id: demo" "http://localhost:3000/api/search?q=react%20hooks"   # source: upstream, used: 3
+curl -H "x-user-id: demo" "http://localhost:3000/api/search?q=React%20Hooks"   # source: cache,    used: 3
 ```
 
 ## Tests
@@ -141,7 +141,7 @@ CI (GitHub Actions) runs format check, lint, typecheck, tests and a production b
 - **Real auth:** derive `userId` from a verified session (e.g. NextAuth or Clerk) instead of a header or cookie anyone can set, and rate-limit per IP as a backstop.
 - **Background refresh:** serve stale entries while revalidating them in the background (stale-while-revalidate), so popular queries never block on YouTube and TTL expiry doesn't cause latency spikes.
 - **Observability:** metrics for hit rate, upstream latency, quota usage and credit exhaustion, plus alerts before the daily YouTube quota runs out.
-- **Smarter costing:** weight credits by YouTube's quota cost per endpoint (`search.list` costs 100 units, `videos.list` 1) instead of one flat `CREDITS_PER_CALL` price for every endpoint.
+- **Pricing from a database:** move `CREDIT_COSTS` into an admin-editable table if prices need to change without a deploy. Ledger entries already store the amount charged, so old charges stay correct.
 
 ## Tech stack
 

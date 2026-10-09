@@ -1,7 +1,8 @@
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiErrorResponse, SearchResponse } from "@/lib/api/types";
-import { CREDITS_PER_CALL } from "@/lib/credits";
+import { CREDIT_COSTS } from "@/lib/credits";
+import { formatCredits } from "@/lib/format";
 import { youtubeErrorBody } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
@@ -14,7 +15,7 @@ const search = (q: string, userId = "alice") =>
 describe("GET /api/search", () => {
   beforeEach(() => setupApp());
 
-  it("returns results with fresh cache meta and charges one credit (happy path)", async () => {
+  it("returns results with fresh cache meta and charges the search price (happy path)", async () => {
     const response = await search("React Hooks");
     const body = (await response.json()) as SearchResponse;
 
@@ -26,21 +27,27 @@ describe("GET /api/search", () => {
       cacheKey: "yt:search:react hooks",
       source: "upstream",
       cached: false,
+      creditsCharged: CREDIT_COSTS.search,
     });
-    expect(body.credits).toEqual({ used: 1, limit: 20, remaining: 19 });
+    expect(body.credits).toEqual({
+      used: CREDIT_COSTS.search,
+      limit: 20,
+      remaining: 20 - CREDIT_COSTS.search,
+    });
   });
 
   it("serves a repeat (normalised) query from cache without charging", async () => {
     await search("React Hooks");
     const body = (await (await search("  react   hooks ")).json()) as SearchResponse;
 
-    expect(body.meta).toMatchObject({ source: "cache", cached: true });
-    expect(body.credits.used).toBe(1);
+    expect(body.meta).toMatchObject({ source: "cache", cached: true, creditsCharged: 0 });
+    expect(body.credits.used).toBe(CREDIT_COSTS.search);
     expect(youtubeCalls.search).toBe(1);
   });
 
-  it("returns 402 when the credit limit is reached, without calling YouTube", async () => {
-    setupApp({ CREDIT_LIMIT: "1" });
+  it("returns 402 when the user can't afford another search, without calling YouTube", async () => {
+    // Enough for one search, one credit short of a second.
+    setupApp({ CREDIT_LIMIT: String(2 * CREDIT_COSTS.search - 1) });
     await search("first query");
     expect(youtubeCalls.search).toBe(1);
 
@@ -49,7 +56,10 @@ describe("GET /api/search", () => {
 
     expect(response.status).toBe(402);
     expect(body.error.code).toBe("CREDIT_LIMIT_REACHED");
-    expect(body.credits).toEqual({ used: 1, limit: 1, remaining: 0 });
+    expect(body.error.message).toContain(
+      `A search costs ${formatCredits(CREDIT_COSTS.search)} and you have ${CREDIT_COSTS.search - 1} left`,
+    );
+    expect(body.credits).toMatchObject({ used: CREDIT_COSTS.search });
     expect(youtubeCalls.search).toBe(1); // the blocked request never reached upstream
   });
 
@@ -57,9 +67,9 @@ describe("GET /api/search", () => {
     const miss = (await (await search("cost check")).json()) as SearchResponse;
     const hit = (await (await search("cost check")).json()) as SearchResponse;
 
-    expect(miss.meta.creditsCharged).toBe(CREDITS_PER_CALL);
+    expect(miss.meta.creditsCharged).toBe(CREDIT_COSTS.search);
     expect(hit.meta.creditsCharged).toBe(0);
-    expect(hit.credits.used).toBe(CREDITS_PER_CALL);
+    expect(hit.credits.used).toBe(CREDIT_COSTS.search);
   });
 
   it("maps an upstream 5xx to 502 and refunds the credit", async () => {
@@ -133,7 +143,9 @@ describe("GET /api/search", () => {
         apiRequest("/api/search?q=dogs", { cookie: "vsc_uid=user-from-cookie" }),
       );
 
-      expect(((await response.json()) as SearchResponse).credits.used).toBe(2);
+      expect(((await response.json()) as SearchResponse).credits.used).toBe(
+        2 * CREDIT_COSTS.search,
+      );
       expect(response.cookies.get("vsc_uid")).toBeUndefined();
     });
   });

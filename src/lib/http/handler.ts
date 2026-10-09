@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { z } from "zod";
 import type { ApiErrorCode, ApiErrorResponse, CacheMeta } from "@/lib/api/types";
 import { getContainer } from "@/lib/container";
-import { CreditLimitError, type CreditUsage } from "@/lib/credits";
+import { ACTION_LABELS, CreditLimitError, type CreditUsage } from "@/lib/credits";
 import { AppError, InvalidInputError } from "@/lib/errors";
+import { formatCredits } from "@/lib/format";
 import type { ChargedResult } from "@/lib/services/video-service";
 import { RateLimitError } from "@/lib/youtube";
 import { USER_ID_COOKIE, resolveUser, type RequestUser } from "./user";
@@ -24,7 +25,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
 const MESSAGE_BY_CODE: Record<ApiErrorCode, string> = {
   INVALID_INPUT: "The request was invalid.",
   CREDIT_LIMIT_REACHED:
-    "You've used all your credits. Anything already cached is still free to view.",
+    "You don't have enough credits for that. Anything already cached is still free to view.",
   NOT_FOUND: "That video couldn't be found. It may be private or deleted.",
   UPSTREAM_RATE_LIMITED: "YouTube is rate-limiting us right now. Please try again shortly.",
   UPSTREAM_ERROR: "YouTube didn't respond as expected. Please try again.",
@@ -93,6 +94,12 @@ async function errorResponse(error: unknown, userId?: string): Promise<NextRespo
   let message = MESSAGE_BY_CODE[code];
   if (error instanceof InvalidInputError && error.issues.length > 0) {
     message = `${message} ${error.issues.join("; ")}`;
+  }
+  if (error instanceof CreditLimitError && error.attempted) {
+    const { action, cost } = error.attempted;
+    message =
+      `${ACTION_LABELS[action]} costs ${formatCredits(cost)} and you have ` +
+      `${error.usage.remaining} left. Anything already cached is still free to view.`;
   }
 
   const body: ApiErrorResponse = { error: { code, message } };

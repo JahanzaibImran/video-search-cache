@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api/client";
 import type { CreditUsage, SearchResponse, VideoSummary } from "@/lib/api/types";
-import { CREDITS_PER_CALL } from "@/lib/credits/costs";
+import { CREDIT_COSTS } from "@/lib/credits/costs";
 import { formatCredits } from "@/lib/format";
 import { AppHeader } from "./AppHeader";
 import { CreditsIndicator } from "./CreditsIndicator";
@@ -78,9 +78,11 @@ function SearchResults({ state, query, onRetry, onSelect }: SearchResultsProps) 
     case "idle":
       return (
         <StatusMessage title="Search for any topic to get started">
-          Each new search or video costs {formatCredits(CREDITS_PER_CALL)}. Repeat it (even with
-          different capitalisation or spacing) and it&apos;s served from cache for free. Look for
-          the <span className="font-medium text-amber-700">fresh</span> and{" "}
+          A new search costs {formatCredits(CREDIT_COSTS.search)}, video details{" "}
+          {formatCredits(CREDIT_COSTS.videoDetails)} and comments{" "}
+          {formatCredits(CREDIT_COSTS.comments)}. Repeat any of them (even with different
+          capitalisation or spacing) and it&apos;s served from cache for free. Look for the{" "}
+          <span className="font-medium text-amber-700">fresh</span> and{" "}
           <span className="font-medium text-emerald-700">cached</span> badges.
         </StatusMessage>
       );
@@ -107,9 +109,8 @@ function SearchResults({ state, query, onRetry, onSelect }: SearchResultsProps) 
       const { error } = state;
       if (error.code === "CREDIT_LIMIT_REACHED") {
         return (
-          <StatusMessage tone="warning" title="You've reached your credit limit">
-            New searches need a fresh API call, which you&apos;re out of credits for. Searches and
-            videos you (or anyone) opened before are cached and still work.
+          <StatusMessage tone="warning" title="Not enough credits for a new search">
+            {error.message}
           </StatusMessage>
         );
       }

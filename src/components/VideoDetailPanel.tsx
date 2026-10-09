@@ -159,7 +159,11 @@ function CommentsBody({ state, onRetry }: Pick<VideoDetailPanelProps, "state" | 
       return (
         <StatusMessage
           tone={state.error.code === "CREDIT_LIMIT_REACHED" ? "warning" : "error"}
-          title="Couldn't load comments"
+          title={
+            state.error.code === "CREDIT_LIMIT_REACHED"
+              ? "Not enough credits"
+              : "Couldn't load comments"
+          }
           action={
             state.error.code !== "CREDIT_LIMIT_REACHED" && state.error.code !== "NOT_FOUND" ? (
               <RetryButton onClick={onRetry} />

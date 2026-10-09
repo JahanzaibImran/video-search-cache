@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Costs from "@/lib/credits/costs";
 
 /**
  * Regression test for the "I changed the price and nothing happened" bug.
  * `vi.resetModules()` + a fresh import is what a Next.js dev hot reload does:
  * modules re-run, but anything on `globalThis` survives.
  */
-async function loadContainerWithPrice(price: number) {
+async function loadContainerWithPrice(searchPrice: number) {
   vi.resetModules();
-  vi.doMock("@/lib/credits/costs", () => ({ CREDITS_PER_CALL: price }));
+  vi.doMock("@/lib/credits/costs", async (importOriginal) => {
+    const real = await importOriginal<typeof Costs>();
+    return { ...real, CREDIT_COSTS: { ...real.CREDIT_COSTS, search: searchPrice } };
+  });
   return import("./container");
 }
 

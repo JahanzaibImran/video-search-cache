@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CREDITS_PER_CALL } from "./costs";
+import { CREDIT_COSTS, creditCost, type CreditCosts } from "./costs";
 import { CreditLimitError } from "./errors";
 import type { ChargeInput, CreditLedger, CreditUsage, LedgerEntry } from "./types";
 
@@ -22,8 +22,8 @@ export function createLedgerState(): LedgerState {
 
 export interface InMemoryCreditLedgerOptions {
   limit?: number;
-  /** Override for tests. The app always uses `CREDITS_PER_CALL` from `costs.ts`. */
-  costPerCall?: number;
+  /** Override for tests. The app always uses `CREDIT_COSTS` from `costs.ts`. */
+  costs?: CreditCosts;
   /** Existing data to continue from (see `LedgerState`). */
   state?: LedgerState;
   now?: () => number;
@@ -37,7 +37,7 @@ export interface InMemoryCreditLedgerOptions {
 export class InMemoryCreditLedger implements CreditLedger {
   private readonly state: LedgerState;
   readonly limit: number;
-  readonly costPerCall: number;
+  readonly costs: CreditCosts;
   private readonly now: () => number;
 
   constructor(options: InMemoryCreditLedgerOptions = {}) {
@@ -45,12 +45,14 @@ export class InMemoryCreditLedger implements CreditLedger {
     if (!Number.isInteger(limit) || limit < 0) {
       throw new RangeError(`Credit limit must be a non-negative integer, got ${limit}`);
     }
-    const costPerCall = options.costPerCall ?? CREDITS_PER_CALL;
-    if (!Number.isInteger(costPerCall) || costPerCall < 1) {
-      throw new RangeError(`Credits per call must be a positive integer, got ${costPerCall}`);
+    const costs = options.costs ?? CREDIT_COSTS;
+    for (const [action, cost] of Object.entries(costs)) {
+      if (!Number.isInteger(cost) || cost < 1) {
+        throw new RangeError(`Cost of "${action}" must be a positive integer, got ${cost}`);
+      }
     }
     this.limit = limit;
-    this.costPerCall = costPerCall;
+    this.costs = costs;
     this.state = options.state ?? createLedgerState();
     this.now = options.now ?? Date.now;
   }
@@ -61,8 +63,10 @@ export class InMemoryCreditLedger implements CreditLedger {
 
   async charge({ userId, action, cacheKey }: ChargeInput): Promise<LedgerEntry> {
     // Check and append happen synchronously, so concurrent charges can't overspend.
+    // The check uses this action's real price: 2 credits left can't buy a 3-credit search.
+    const cost = creditCost(action, this.costs);
     const usage = this.usageFor(userId);
-    if (usage.remaining < this.costPerCall) throw new CreditLimitError(userId, usage);
+    if (usage.remaining < cost) throw new CreditLimitError(userId, usage, { action, cost });
 
     const entry: LedgerEntry = {
       id: randomUUID(),
@@ -70,7 +74,7 @@ export class InMemoryCreditLedger implements CreditLedger {
       action,
       cacheKey,
       timestamp: this.now(),
-      amount: this.costPerCall,
+      amount: cost,
       kind: "charge",
     };
     this.append(entry);
