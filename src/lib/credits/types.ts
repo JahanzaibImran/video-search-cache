@@ -1,5 +1,6 @@
-/** The kind of upstream call credits were spent on. Each upstream API call costs a fixed amount. */
-export type CreditAction = "search" | "video" | "comments";
+import type { CreditAction } from "./costs";
+
+export type { CreditAction };
 
 export interface LedgerEntry {
   id: string;

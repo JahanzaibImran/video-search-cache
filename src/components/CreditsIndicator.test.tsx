@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { CREDIT_COSTS } from "@/lib/credits/costs";
 import { CreditsIndicator } from "./CreditsIndicator";
 
 describe("CreditsIndicator", () => {
@@ -16,5 +17,13 @@ describe("CreditsIndicator", () => {
 
     expect(screen.getByText("20 of 20 credits used")).toBeInTheDocument();
     expect(screen.getByText(/out of credits.*cached is still free/i)).toBeInTheDocument();
+  });
+
+  it("warns when the balance is above zero but below the price of a search", () => {
+    const remaining = CREDIT_COSTS.search - 1;
+    render(<CreditsIndicator credits={{ used: 20 - remaining, limit: 20, remaining }} />);
+
+    expect(screen.getByText(/not enough for a new search/i)).toBeInTheDocument();
+    expect(screen.queryByText(/out of credits/)).not.toBeInTheDocument();
   });
 });

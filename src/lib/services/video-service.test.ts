@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCachedFetch, InMemoryCacheStore } from "@/lib/cache";
-import { CreditLimitError, InMemoryCreditLedger } from "@/lib/credits";
+import { CreditLimitError, InMemoryCreditLedger, type CreditCosts } from "@/lib/credits";
 import { createYouTubeClient, NotFoundError, UpstreamError } from "@/lib/youtube";
 import { MISSING_VIDEO_ID, VIDEO_ID } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
@@ -9,19 +9,24 @@ import { server } from "@/test/msw/server";
 import { createVideoService, type VideoService } from "./video-service";
 
 const LIMIT = 5;
+/** Most tests here count upstream calls, so every call costs 1. */
+const FLAT: CreditCosts = { search: 1, videoDetails: 1, comments: 1, transcript: 1 };
+const PRICED: CreditCosts = { search: 3, videoDetails: 1, comments: 2, transcript: 2 };
 
 describe("VideoService (cache + credits + YouTube client)", () => {
   let ledger: InMemoryCreditLedger;
   let service: VideoService;
 
-  beforeEach(() => {
-    ledger = new InMemoryCreditLedger({ limit: LIMIT, costPerCall: 1 });
+  function setup(costs: CreditCosts, limit = LIMIT) {
+    ledger = new InMemoryCreditLedger({ limit, costs });
     service = createVideoService({
       youtube: createYouTubeClient({ apiKey: "test-key" }),
       ledger,
       cache: createCachedFetch(new InMemoryCacheStore()),
     });
-  });
+  }
+
+  beforeEach(() => setup(FLAT));
 
   async function exhaustCredits(userId: string) {
     for (let i = 0; i < LIMIT; i++) {
@@ -30,7 +35,7 @@ describe("VideoService (cache + credits + YouTube client)", () => {
   }
 
   describe("credits", () => {
-    it("deducts one credit on a cache miss", async () => {
+    it("deducts the price on a cache miss", async () => {
       const result = await service.search("alice", "react hooks");
 
       expect(result.source).toBe("upstream");
@@ -144,6 +149,49 @@ describe("VideoService (cache + credits + YouTube client)", () => {
       expect(youtubeCalls.videos).toBe(1);
       expect(youtubeCalls.commentThreads).toBe(0);
       expect(await service.getUsage("alice")).toMatchObject({ used: 0 });
+    });
+  });
+
+  describe("per-action prices", () => {
+    beforeEach(() => setup(PRICED, 5));
+
+    it("charges a search its own price on a miss and reports it", async () => {
+      const result = await service.search("alice", "react hooks");
+
+      expect(result.creditsCharged).toBe(3);
+      expect(await service.getUsage("alice")).toMatchObject({ used: 3, remaining: 2 });
+    });
+
+    it("charges nothing for a cache hit and reports 0", async () => {
+      await service.search("alice", "react hooks");
+      const hit = await service.search("alice", "react hooks");
+
+      expect(hit).toMatchObject({ source: "cache", creditsCharged: 0 });
+      expect(await service.getUsage("alice")).toMatchObject({ used: 3 });
+    });
+
+    it("charges video details and comments separately: 1 + 2", async () => {
+      const { video, comments } = await service.getVideoWithComments("alice", VIDEO_ID);
+
+      expect(video.creditsCharged).toBe(1);
+      expect(comments.creditsCharged).toBe(2);
+      expect(await service.getUsage("alice")).toMatchObject({ used: 3 });
+    });
+
+    it("charges nothing when the upstream call fails", async () => {
+      server.use(http.get(youtubeUrl("search"), () => new HttpResponse(null, { status: 500 })));
+
+      await expect(service.search("alice", "react hooks")).rejects.toBeInstanceOf(UpstreamError);
+      expect(await service.getUsage("alice")).toMatchObject({ used: 0 });
+    });
+
+    it("blocks a 3-credit search with 2 left, before calling upstream", async () => {
+      await service.search("alice", "first"); // 3 used, 2 left
+
+      await expect(service.search("alice", "second")).rejects.toMatchObject({
+        attempted: { action: "search", cost: 3 },
+      });
+      expect(youtubeCalls.search).toBe(1);
     });
   });
 });

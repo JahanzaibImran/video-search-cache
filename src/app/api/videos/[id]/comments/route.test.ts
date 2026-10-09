@@ -1,6 +1,7 @@
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiErrorResponse, VideoCommentsResponse } from "@/lib/api/types";
+import { CREDIT_COSTS } from "@/lib/credits";
 import { COMMENTS_DISABLED_VIDEO_ID, MISSING_VIDEO_ID, VIDEO_ID } from "@/test/fixtures";
 import { youtubeCalls, youtubeUrl } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
@@ -21,13 +22,18 @@ describe("GET /api/videos/[id]/comments", () => {
 
     expect(response.status).toBe(200);
     expect(body.video.data).toMatchObject({ id: VIDEO_ID, viewCount: 123456 });
-    expect(body.video.meta).toMatchObject({ cacheKey: `yt:video:${VIDEO_ID}`, cached: false });
+    expect(body.video.meta).toMatchObject({
+      cacheKey: `yt:video:${VIDEO_ID}`,
+      cached: false,
+      creditsCharged: CREDIT_COSTS.videoDetails,
+    });
     expect(body.comments.data.comments).toHaveLength(2);
     expect(body.comments.meta).toMatchObject({
       cacheKey: `yt:comments:${VIDEO_ID}`,
       cached: false,
+      creditsCharged: CREDIT_COSTS.comments,
     });
-    expect(body.credits.used).toBe(2);
+    expect(body.credits.used).toBe(CREDIT_COSTS.videoDetails + CREDIT_COSTS.comments);
   });
 
   it("is free the second time", async () => {
@@ -63,7 +69,7 @@ describe("GET /api/videos/[id]/comments", () => {
     expect(response.status).toBe(502);
     expect(body.error.code).toBe("UPSTREAM_ERROR");
     // The video call succeeded and stays cached and charged; the failed comments call is refunded.
-    expect(body.credits?.used).toBe(1);
+    expect(body.credits?.used).toBe(CREDIT_COSTS.videoDetails);
   });
 
   it("returns 404 for a video that doesn't exist", async () => {

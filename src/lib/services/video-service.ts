@@ -105,7 +105,7 @@ export function createVideoService({
       // second upstream call (and quota) discovering that its comments don't either.
       const video = await cachedUpstream(
         userId,
-        "video",
+        "videoDetails",
         cacheKeys.video(videoId),
         () => youtube.getVideo(videoId),
         ttl.video,
