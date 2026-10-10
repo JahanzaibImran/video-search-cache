@@ -1,5 +1,6 @@
-/** The kind of upstream call a credit was spent on. One credit = one upstream API call. */
-export type CreditAction = "search" | "video" | "comments";
+import type { CreditAction } from "./costs";
+
+export type { CreditAction };
 
 export interface LedgerEntry {
   id: string;
@@ -8,6 +9,8 @@ export interface LedgerEntry {
   cacheKey: string;
   /** Epoch ms. */
   timestamp: number;
+  /** Credits moved by this entry, recorded at charge time so a later price change can't rewrite history. */
+  amount: number;
   /** `refund` entries reverse an earlier charge whose upstream call failed. */
   kind: "charge" | "refund";
   /** For refunds: the id of the charge being reversed. */
@@ -33,7 +36,7 @@ export interface ChargeInput {
  */
 export interface CreditLedger {
   getUsage(userId: string): Promise<CreditUsage>;
-  /** Records one credit spent, or throws `CreditLimitError` if the user has none left. */
+  /** Records one call's credits spent, or throws `CreditLimitError` if the user can't afford it. */
   charge(input: ChargeInput): Promise<LedgerEntry>;
   /** Reverses a charge (idempotent). Used when the upstream call it paid for fails. */
   refund(chargeId: string): Promise<void>;

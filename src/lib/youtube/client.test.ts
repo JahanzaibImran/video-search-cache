@@ -37,6 +37,8 @@ describe("YouTube client: valid responses", () => {
     expect(results).toHaveLength(2);
     expect(results[0]).toEqual({
       id: VIDEO_ID,
+      platform: "youtube",
+      url: `https://www.youtube.com/watch?v=${VIDEO_ID}`,
       title: "Learn react hooks & more in 10 minutes", // HTML entities decoded
       description: "Description for video 1",
       channelTitle: "Channel 1",

@@ -37,8 +37,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Fully mocked: every request needs an MSW handler, and any attempt to reach
+      # the real network fails the test (src/test/network-guard.ts). The keys are
+      # blanked so nothing could be charged even if a guard were bypassed.
       - name: Test
         run: npm test
+        env:
+          YOUTUBE_API_KEY: ""
+          SCRAPECREATORS_API_KEY: ""
 
       # No API key in CI on purpose: the build must succeed without one.
       - name: Build

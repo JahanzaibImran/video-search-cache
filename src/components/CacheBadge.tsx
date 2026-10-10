@@ -1,17 +1,18 @@
-import { formatAge } from "@/lib/format";
+import { formatAge, formatCredits } from "@/lib/format";
 
 export interface CacheBadgeProps {
   cached: boolean;
   /** ISO time of the upstream fetch, shown in the tooltip. */
   fetchedAt?: string;
+  /** What the live fetch actually cost, as reported by the API. */
+  creditsCharged?: number;
 }
 
-/** Makes caching visible: "cached" cost nothing, "fresh" spent one credit. */
-export function CacheBadge({ cached, fetchedAt }: CacheBadgeProps) {
+/** Makes caching visible: "cached" cost nothing, "fresh" shows what it cost. */
+export function CacheBadge({ cached, fetchedAt, creditsCharged }: CacheBadgeProps) {
   const age = fetchedAt ? ` (fetched ${formatAge(fetchedAt)})` : "";
-  const title = cached
-    ? `Served from cache, no credit used${age}`
-    : "Fetched live from YouTube, 1 credit used";
+  const cost = creditsCharged === undefined ? "" : `, ${formatCredits(creditsCharged)} used`;
+  const title = cached ? `Served from cache, no credits used${age}` : `Fetched live${cost}`;
 
   return (
     <span

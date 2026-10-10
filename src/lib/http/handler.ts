@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { z } from "zod";
-import type { ApiErrorCode, ApiErrorResponse, CacheMeta } from "@/lib/api/types";
-import type { CachedResult } from "@/lib/cache";
+import type { ApiError, ApiErrorCode, ApiErrorResponse, CacheMeta } from "@/lib/api/types";
 import { getContainer } from "@/lib/container";
-import { CreditLimitError, type CreditUsage } from "@/lib/credits";
+import { ACTION_LABELS, CreditLimitError, type CreditUsage } from "@/lib/credits";
 import { AppError, InvalidInputError } from "@/lib/errors";
-import { RateLimitError } from "@/lib/youtube";
+import { formatCredits } from "@/lib/format";
+import type { ChargedResult } from "@/lib/services/video-service";
+import { RateLimitError } from "@/lib/providers/errors";
 import { USER_ID_COOKIE, resolveUser, type RequestUser } from "./user";
 
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
@@ -14,6 +15,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   INVALID_INPUT: 400,
   CREDIT_LIMIT_REACHED: 402,
   NOT_FOUND: 404,
+  UNSUPPORTED: 422,
   UPSTREAM_RATE_LIMITED: 503,
   UPSTREAM_ERROR: 502,
   NOT_CONFIGURED: 503,
@@ -24,11 +26,14 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
 const MESSAGE_BY_CODE: Record<ApiErrorCode, string> = {
   INVALID_INPUT: "The request was invalid.",
   CREDIT_LIMIT_REACHED:
-    "You've used all your credits. Anything already cached is still free to view.",
+    "You don't have enough credits for that. Anything already cached is still free to view.",
   NOT_FOUND: "That video couldn't be found. It may be private or deleted.",
-  UPSTREAM_RATE_LIMITED: "YouTube is rate-limiting us right now. Please try again shortly.",
-  UPSTREAM_ERROR: "YouTube didn't respond as expected. Please try again.",
-  NOT_CONFIGURED: "The server is missing its YouTube API key.",
+  UNSUPPORTED: "The current video provider doesn't support that. No credits were used.",
+  UPSTREAM_RATE_LIMITED:
+    "The video provider is rate-limiting us right now. Please try again shortly.",
+  UPSTREAM_ERROR:
+    "The video provider didn't respond as expected, so nothing was charged. Please try again.",
+  NOT_CONFIGURED: "The server is missing its video provider API key.",
   INTERNAL_ERROR: "Something went wrong on our side.",
 };
 
@@ -74,16 +79,21 @@ export function parseInput<S extends z.ZodType>(schema: S, input: unknown): z.ou
   return parsed.data;
 }
 
-export function toCacheMeta(result: CachedResult<unknown>): CacheMeta {
+export function toCacheMeta(result: ChargedResult<unknown>): CacheMeta {
   return {
     cacheKey: result.key,
     source: result.source,
     cached: result.source !== "upstream",
+    creditsCharged: result.creditsCharged,
     fetchedAt: new Date(result.fetchedAt).toISOString(),
   };
 }
 
-async function errorResponse(error: unknown, userId?: string): Promise<NextResponse> {
+/**
+ * Any thrown value -> a stable code plus client-safe copy. Internal details
+ * (endpoints, statuses, Zod issues) are logged, never sent to the browser.
+ */
+export function toApiError(error: unknown): ApiError {
   const code: ApiErrorCode = isKnownCode(error) ? error.code : "INTERNAL_ERROR";
   if (code === "INTERNAL_ERROR" || code === "UPSTREAM_ERROR") {
     console.error("[api]", error);
@@ -93,7 +103,17 @@ async function errorResponse(error: unknown, userId?: string): Promise<NextRespo
   if (error instanceof InvalidInputError && error.issues.length > 0) {
     message = `${message} ${error.issues.join("; ")}`;
   }
+  if (error instanceof CreditLimitError && error.attempted) {
+    const { action, cost } = error.attempted;
+    message =
+      `${ACTION_LABELS[action]} costs ${formatCredits(cost)} and you have ` +
+      `${error.usage.remaining} left. Anything already cached is still free to view.`;
+  }
+  return { code, message };
+}
 
+async function errorResponse(error: unknown, userId?: string): Promise<NextResponse> {
+  const { code, message } = toApiError(error);
   const body: ApiErrorResponse = { error: { code, message } };
   const credits = error instanceof CreditLimitError ? error.usage : await safeUsage(userId);
   if (credits) body.credits = credits;

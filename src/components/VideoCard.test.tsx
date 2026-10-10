@@ -6,6 +6,8 @@ import { VideoCard } from "./VideoCard";
 
 const video: VideoSummary = {
   id: "vid00000001",
+  platform: "youtube",
+  url: "https://www.youtube.com/watch?v=vid00000001",
   title: "Learn React Hooks & more in 10 minutes",
   description: "A quick tour",
   channelTitle: "Hooked on Code",
@@ -31,17 +33,14 @@ describe("VideoCard", () => {
     render(<VideoCard video={video} cached onSelect={vi.fn()} />);
 
     const badge = screen.getByText("cached");
-    expect(badge).toHaveAttribute("title", expect.stringContaining("no credit used"));
+    expect(badge).toHaveAttribute("title", expect.stringContaining("no credits used"));
     expect(screen.queryByText("fresh")).not.toBeInTheDocument();
   });
 
-  it("shows a 'fresh' badge when the result was fetched live", () => {
-    render(<VideoCard video={video} cached={false} onSelect={vi.fn()} />);
+  it("shows a 'fresh' badge with what the live fetch actually cost", () => {
+    render(<VideoCard video={video} cached={false} creditsCharged={3} onSelect={vi.fn()} />);
 
-    expect(screen.getByText("fresh")).toHaveAttribute(
-      "title",
-      expect.stringContaining("1 credit used"),
-    );
+    expect(screen.getByText("fresh")).toHaveAttribute("title", "Fetched live, 3 credits used");
   });
 
   it("falls back gracefully when there is no thumbnail", () => {

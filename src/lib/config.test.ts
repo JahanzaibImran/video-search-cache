@@ -1,14 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "./config";
+import { loadConfig, selectedApiKey } from "./config";
 import { ConfigError } from "./errors";
 
 describe("loadConfig", () => {
   it("reads the API key and credit limit", () => {
     expect(loadConfig({ YOUTUBE_API_KEY: "abc", CREDIT_LIMIT: "5" })).toEqual({
+      provider: "youtube",
       youtubeApiKey: "abc",
+      scrapeCreatorsApiKey: null,
       creditLimit: 5,
       youtubeApiBaseUrl: undefined,
+      scrapeCreatorsApiBaseUrl: undefined,
     });
+  });
+
+  it("defaults VIDEO_PROVIDER to youtube and accepts scrapecreators (case-insensitive)", () => {
+    expect(loadConfig({}).provider).toBe("youtube");
+    expect(loadConfig({ VIDEO_PROVIDER: "" }).provider).toBe("youtube");
+    expect(loadConfig({ VIDEO_PROVIDER: " ScrapeCreators " }).provider).toBe("scrapecreators");
+  });
+
+  it("rejects an unknown VIDEO_PROVIDER, naming the variable", () => {
+    expect(() => loadConfig({ VIDEO_PROVIDER: "vimeo" })).toThrow(/VIDEO_PROVIDER/);
+  });
+
+  it("selectedApiKey returns the key for the chosen provider only", () => {
+    const env = { YOUTUBE_API_KEY: "yt", SCRAPECREATORS_API_KEY: "sc" };
+    expect(selectedApiKey(loadConfig(env))).toBe("yt");
+    expect(selectedApiKey(loadConfig({ ...env, VIDEO_PROVIDER: "scrapecreators" }))).toBe("sc");
+    expect(
+      selectedApiKey(loadConfig({ YOUTUBE_API_KEY: "yt", VIDEO_PROVIDER: "scrapecreators" })),
+    ).toBeNull();
   });
 
   it("treats a missing or blank API key as not configured instead of throwing", () => {

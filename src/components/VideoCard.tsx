@@ -7,10 +7,11 @@ export interface VideoCardProps {
   video: VideoSummary;
   cached: boolean;
   fetchedAt?: string;
+  creditsCharged?: number;
   onSelect: (video: VideoSummary) => void;
 }
 
-export function VideoCard({ video, cached, fetchedAt, onSelect }: VideoCardProps) {
+export function VideoCard({ video, cached, fetchedAt, creditsCharged, onSelect }: VideoCardProps) {
   return (
     <article className="group overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <button
@@ -42,11 +43,13 @@ export function VideoCard({ video, cached, fetchedAt, onSelect }: VideoCardProps
               <span className="sr-only">Channel: </span>
               {video.channelTitle}
             </p>
-            <CacheBadge cached={cached} fetchedAt={fetchedAt} />
+            <CacheBadge cached={cached} fetchedAt={fetchedAt} creditsCharged={creditsCharged} />
           </div>
-          <p className="text-xs text-zinc-400">
-            <time dateTime={video.publishedAt}>{formatDate(video.publishedAt)}</time>
-          </p>
+          {video.publishedAt && (
+            <p className="text-xs text-zinc-400">
+              <time dateTime={video.publishedAt}>{formatDate(video.publishedAt)}</time>
+            </p>
+          )}
         </div>
       </button>
     </article>
